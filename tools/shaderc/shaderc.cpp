@@ -2688,6 +2688,23 @@ namespace bgfx
 							}
 							else
 							{
+								const bool usesTextureArray = !bx::findIdentifierMatch(input, s_textureArray).isEmpty();
+								const bool usesViewportLayerArray = !bx::findIdentifierMatch(input, s_ARB_shader_viewport_layer_array).isEmpty();
+
+								if (usesViewportLayerArray)
+								{
+									bx::stringPrintf(code
+										, "#extension GL_ARB_shader_viewport_layer_array : enable\n"
+									);
+								}
+
+								if (usesTextureArray)
+								{
+									bx::stringPrintf(code
+										, "#extension GL_EXT_texture_array : enable\n"
+									);
+								}
+
 								bx::stringPrintf(code, "#version %d\n", glsl_profile);
 
 								if (120 < glsl_profile)
