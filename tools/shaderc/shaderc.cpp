@@ -6,6 +6,8 @@
 #include "shaderc.h"
 #include <bx/commandline.h>
 #include <bx/filepath.h>
+#include <string>
+#include <sstream>
 
 #define MAX_TAGS 256
 extern "C"
@@ -2572,6 +2574,36 @@ namespace bgfx
 									  "#define bgfxShadow2DProj(_sampler, _coord) vec4_splat(textureProj(_sampler, _coord) )\n"
 									);
 							}
+
+							std::istringstream stream(code);
+							std::string line;
+							std::vector<std::string> extensions;
+							std::vector<std::string> otherLines;
+							std::string versionLine;
+							bool versionLineFound = false;
+							while (std::getline(stream, line)) {
+								if (line.find("#version") == 0) {
+									versionLine = line;
+									versionLineFound = true;
+								}
+								else if (line.find("#extension") == 0) {
+									extensions.push_back(line);
+								}
+								else {
+									otherLines.push_back(line);
+								}
+							}
+							std::ostringstream output;
+							if (versionLineFound) {
+								output << versionLine << "\n";
+							}
+							for (const auto& ext : extensions) {
+								output << ext << "\n";
+							}
+							for (const auto& other : otherLines) {
+								output << other << "\n";
+							}
+							code = output.str();
 
 							if ( (profile->lang == ShadingLang::GLSL && glsl_profile > 400)
 							||   (profile->lang == ShadingLang::ESSL && glsl_profile > 300) )
