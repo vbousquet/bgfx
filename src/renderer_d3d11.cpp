@@ -2307,10 +2307,12 @@ namespace bgfx { namespace d3d11
 					? 1 // sync interval of 0 is not supported on WinRT
 					: !!(m_resolution.reset & BGFX_RESET_VSYNC)
 					;
+				uint32_t presentFlags = 0;
 
-				for (uint32_t ii = 1, num = m_numWindows; ii < num && SUCCEEDED(hr); ++ii)
+				if (!syncInterval
+					&& m_dxgi.tearingSupported())
 				{
-					hr = m_frameBuffers[m_windows[ii].idx].present(syncInterval);
+					presentFlags |= DXGI_PRESENT_ALLOW_TEARING;
 				}
 
 				if (SUCCEEDED(hr) )
@@ -2318,14 +2320,6 @@ namespace bgfx { namespace d3d11
 					if (NULL != m_swapChain
 					&&  m_needPresent)
 					{
-						uint32_t presentFlags = 0;
-
-						if (!syncInterval
-						&&  m_dxgi.tearingSupported() )
-						{
-							presentFlags |= DXGI_PRESENT_ALLOW_TEARING;
-						}
-
 						hr = m_swapChain->Present(syncInterval, presentFlags);
 
 						m_needPresent = false;
@@ -2334,6 +2328,16 @@ namespace bgfx { namespace d3d11
 					{
 						m_deviceCtx->Flush();
 					}
+				}
+
+				for (uint32_t ii = 1, num = m_numWindows; ii < num && SUCCEEDED(hr); ++ii)
+				{
+					FrameBufferD3D11& frameBuffer = m_frameBuffers[m_windows[ii].idx];
+#if BX_PLATFORM_LINUX
+					hr = frameBuffer.present(syncInterval, 0);
+#else
+					hr = frameBuffer.present(syncInterval, presentFlags);
+#endif
 				}
 
 				m_lost = isLost(hr);
@@ -5283,11 +5287,11 @@ namespace bgfx { namespace d3d11
 		s_renderD3D11->m_currentDepthStencil = m_dsv;
 	}
 
-	HRESULT FrameBufferD3D11::present(uint32_t _syncInterval)
+	HRESULT FrameBufferD3D11::present(uint32_t _syncInterval, uint32_t _flags)
 	{
 		if (m_needPresent)
 		{
-			HRESULT hr = m_swapChain->Present(_syncInterval, 0);
+			HRESULT hr = m_swapChain->Present(_syncInterval, _flags);
 			hr = !isLost(hr) ? S_OK : hr;
 			m_needPresent = false;
 			return hr;
