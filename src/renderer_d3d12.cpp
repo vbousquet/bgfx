@@ -1861,7 +1861,12 @@ namespace bgfx { namespace d3d12
 				for (uint32_t ii = 1, num = m_numWindows; ii < num && SUCCEEDED(hr); ++ii)
 				{
 					FrameBufferD3D12& frameBuffer = m_frameBuffers[m_windows[ii].idx];
+#if BX_PLATFORM_LINUX
 					hr = frameBuffer.present(syncInterval, presentFlags);
+#else
+					// Since we are single threaded, this would lock the thread to the presentation on all displays
+					hr = frameBuffer.present(0, m_dxgi.tearingSupported() ? presentFlags | DXGI_PRESENT_ALLOW_TEARING : presentFlags);
+#endif
 				}
 
 				if (SUCCEEDED(hr)

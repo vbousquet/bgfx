@@ -2381,9 +2381,20 @@ namespace bgfx { namespace d3d11
 					: !!(m_resolution.reset & BGFX_RESET_VSYNC)
 					;
 
+				uint32_t ancilaryPresentFlags = 0;
+
+#if BX_PLATFORM_LINUX
+#else
+				// Only apply syncInterval on first display as all swapchains are on the same thread.
+				if (m_dxgi.tearingSupported())
+				{
+					ancilaryPresentFlags |= DXGI_PRESENT_ALLOW_TEARING;
+				}
+#endif
+
 				for (uint32_t ii = 1, num = m_numWindows; ii < num && SUCCEEDED(hr); ++ii)
 				{
-					hr = m_frameBuffers[m_windows[ii].idx].present(syncInterval);
+					hr = m_frameBuffers[m_windows[ii].idx].present(0, ancilaryPresentFlags);
 				}
 
 				if (SUCCEEDED(hr) )
@@ -5385,11 +5396,11 @@ namespace bgfx { namespace d3d11
 		s_renderD3D11->m_currentDepthStencil = m_dsv;
 	}
 
-	HRESULT FrameBufferD3D11::present(uint32_t _syncInterval)
+	HRESULT FrameBufferD3D11::present(uint32_t _syncInterval, uint32_t _flags)
 	{
 		if (m_needPresent)
 		{
-			HRESULT hr = m_swapChain->Present(_syncInterval, 0);
+			HRESULT hr = m_swapChain->Present(_syncInterval, _flags);
 			hr = !isLost(hr) ? S_OK : hr;
 			m_needPresent = false;
 			return hr;
