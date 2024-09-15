@@ -2455,7 +2455,8 @@ namespace bgfx { namespace d3d11
 
 				for (uint32_t ii = 1, num = m_numWindows; ii < num && SUCCEEDED(hr); ++ii)
 				{
-					hr = m_frameBuffers[m_windows[ii].idx].present(syncInterval, presentFlags);
+					// Only apply syncInterval on first display as all swapchains are on the same thread.
+					hr = m_frameBuffers[m_windows[ii].idx].present(0, m_dxgi.tearingSupported() ? presentFlags | DXGI_PRESENT_ALLOW_TEARING : presentFlags);
 				}
 
 				if (SUCCEEDED(hr) )
