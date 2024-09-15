@@ -2310,7 +2310,13 @@ namespace bgfx { namespace d3d11
 
 				for (uint32_t ii = 1, num = m_numWindows; ii < num && SUCCEEDED(hr); ++ii)
 				{
-					hr = m_frameBuffers[m_windows[ii].idx].present(syncInterval);
+					FrameBufferD3D11& frameBuffer = m_frameBuffers[m_windows[ii].idx];
+#if BX_PLATFORM_LINUX
+					hr = frameBuffer.present(syncInterval, 0);
+#else
+					// Since we are single threaded, this would lock the thread to the presentation on all displays
+					hr = frameBuffer.present(0, m_dxgi.tearingSupported() ? DXGI_PRESENT_ALLOW_TEARING : 0);
+#endif
 				}
 
 				if (SUCCEEDED(hr) )
@@ -5283,11 +5289,11 @@ namespace bgfx { namespace d3d11
 		s_renderD3D11->m_currentDepthStencil = m_dsv;
 	}
 
-	HRESULT FrameBufferD3D11::present(uint32_t _syncInterval)
+	HRESULT FrameBufferD3D11::present(uint32_t _syncInterval, uint32_t _flags)
 	{
 		if (m_needPresent)
 		{
-			HRESULT hr = m_swapChain->Present(_syncInterval, 0);
+			HRESULT hr = m_swapChain->Present(_syncInterval, _flags);
 			hr = !isLost(hr) ? S_OK : hr;
 			m_needPresent = false;
 			return hr;
