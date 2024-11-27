@@ -519,6 +519,9 @@ namespace entry
 			while (!m_exit)
 			{
 				bgfx::renderFrame();
+				AppI* app = entry::getFirstApp();
+				if (app)
+					app->init(-1, nullptr, 0, 0);
 
 				s_xinput.update(m_eventQueue);
 				WaitForInputIdle(GetCurrentProcess(), 16);
