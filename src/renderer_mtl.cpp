@@ -2158,14 +2158,14 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 					if (NULL != swapChain->m_backBufferColorMsaa)
 					{
 						_renderPassDescriptor->colorAttachments()->object(0)->setTexture(swapChain->m_backBufferColorMsaa);
-						_renderPassDescriptor->colorAttachments()->object(0)->setResolveTexture(NULL != m_screenshotTarget
+						_renderPassDescriptor->colorAttachments()->object(0)->setResolveTexture((NULL != m_screenshotTarget && m_screenshotTargetFrameBufferHandle.idx == _fbh.idx)
 							? m_screenshotTarget
 							: swapChain->currentDrawableTexture()
 							);
 					}
 					else
 					{
-						_renderPassDescriptor->colorAttachments()->object(0)->setTexture(NULL != m_screenshotTarget
+						_renderPassDescriptor->colorAttachments()->object(0)->setTexture((NULL != m_screenshotTarget && m_screenshotTargetFrameBufferHandle.idx == _fbh.idx)
 							? m_screenshotTarget
 							: swapChain->currentDrawableTexture()
 							);
@@ -3017,6 +3017,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 		MTL::SamplerDescriptor*        m_samplerDescriptor;
 
 		MTL::Texture*             m_screenshotTarget;
+		FrameBufferHandle         m_screenshotTargetFrameBufferHandle;
 		ShaderMtl                 m_screenshotBlitProgramVsh;
 		ShaderMtl                 m_screenshotBlitProgramFsh;
 		ProgramMtl                m_screenshotBlitProgram;
@@ -4523,45 +4524,39 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 		if (0 != _render->m_numScreenShots
 		||  NULL != m_capture)
 		{
-			if (m_screenshotTarget)
+			MTL_RELEASE(m_screenshotTarget, 0);
+
+			const ScreenShot& screenShot = _render->m_screenShot[0];
+			m_screenshotTargetFrameBufferHandle = screenShot.handle;
+			const FrameBufferMtl& frameBuffer = (!isValid(screenShot.handle)) ? m_mainFrameBuffer : m_frameBuffers[m_screenshotTargetFrameBufferHandle.idx];
+
+			MTL::TextureDescriptor* desc = newTextureDescriptor();
+
+			desc->setTextureType(MTL::TextureType2D);
+			desc->setPixelFormat(getSwapChainPixelFormat(frameBuffer.m_swapChain) );
+			desc->setWidth(frameBuffer.m_width);
+			desc->setHeight(frameBuffer.m_height);
+			desc->setDepth(1);
+			desc->setMipmapLevelCount(1);
+			desc->setSampleCount(1);
+			desc->setArrayLength(1);
+
+			if (s_renderMtl->m_hasCPUCacheModesAndStorageModes)
 			{
-				if (m_screenshotTarget->width()  != m_resolution.width
-				||  m_screenshotTarget->height() != m_resolution.height)
-				{
-					MTL_RELEASE(m_screenshotTarget, 0);
-				}
+				desc->setCpuCacheMode(MTL::CPUCacheModeDefaultCache);
+				desc->setStorageMode(BX_ENABLED(BX_PLATFORM_IOS) || BX_ENABLED(BX_PLATFORM_VISIONOS)
+					? MTL::StorageModeShared
+					: MTL::StorageModeManaged)
+					;
+
+				desc->setUsage(MTL::TextureUsage(0
+					| MTL::TextureUsageRenderTarget
+					| MTL::TextureUsageShaderRead
+					) );
 			}
 
-			if (NULL == m_screenshotTarget)
-			{
-				MTL::TextureDescriptor* desc = newTextureDescriptor();
-
-				desc->setTextureType(MTL::TextureType2D);
-				desc->setPixelFormat(getSwapChainPixelFormat(m_mainFrameBuffer.m_swapChain) );
-				desc->setWidth(m_resolution.width);
-				desc->setHeight(m_resolution.height);
-				desc->setDepth(1);
-				desc->setMipmapLevelCount(1);
-				desc->setSampleCount(1);
-				desc->setArrayLength(1);
-
-				if (s_renderMtl->m_hasCPUCacheModesAndStorageModes)
-				{
-					desc->setCpuCacheMode(MTL::CPUCacheModeDefaultCache);
-					desc->setStorageMode(BX_ENABLED(BX_PLATFORM_IOS) || BX_ENABLED(BX_PLATFORM_VISIONOS)
-						? MTL::StorageModeShared
-						: MTL::StorageModeManaged)
-						;
-
-					desc->setUsage(MTL::TextureUsage(0
-						| MTL::TextureUsageRenderTarget
-						| MTL::TextureUsageShaderRead
-						) );
-				}
-
-				m_screenshotTarget = m_device->newTexture(desc);
-				MTL_RELEASE(desc, 0);
-			}
+			m_screenshotTarget = m_device->newTexture(desc);
+			MTL_RELEASE(desc, 0);
 		}
 		else
 		{
@@ -5728,8 +5723,10 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 
 		if (m_screenshotTarget)
 		{
+			const FrameBufferMtl& frameBuffer = (!isValid(m_screenshotTargetFrameBufferHandle)) ? m_mainFrameBuffer : m_frameBuffers[m_screenshotTargetFrameBufferHandle.idx];
+
 			MTL::RenderPassDescriptor* renderPassDescriptor = newRenderPassDescriptor();
-			renderPassDescriptor->colorAttachments()->object(0)->setTexture(NULL != m_mainFrameBuffer.m_swapChain ? m_mainFrameBuffer.m_swapChain->currentDrawableTexture() : NULL);
+			renderPassDescriptor->colorAttachments()->object(0)->setTexture(NULL != frameBuffer.m_swapChain ? frameBuffer.m_swapChain->currentDrawableTexture() : NULL);
 			renderPassDescriptor->colorAttachments()->object(0)->setStoreAction(MTL::StoreActionStore);
 
 			rce = m_commandBuffer->renderCommandEncoder(renderPassDescriptor);
