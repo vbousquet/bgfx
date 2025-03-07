@@ -1932,14 +1932,14 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 				if (NULL != swapChain->m_backBufferColorMsaa)
 				{
 					_renderPassDescriptor.colorAttachments[0].texture        = swapChain->m_backBufferColorMsaa;
-					_renderPassDescriptor.colorAttachments[0].resolveTexture = NULL != m_screenshotTarget
+					_renderPassDescriptor.colorAttachments[0].resolveTexture = (NULL != m_screenshotTarget && m_screenshotTargetFrameBufferHandle.idx == _fbh.idx)
 						? m_screenshotTarget.m_obj
 						: swapChain->currentDrawableTexture()
 						;
 				}
 				else
 				{
-					_renderPassDescriptor.colorAttachments[0].texture = NULL != m_screenshotTarget
+					_renderPassDescriptor.colorAttachments[0].texture = (NULL != m_screenshotTarget && m_screenshotTargetFrameBufferHandle.idx == _fbh.idx)
 						? m_screenshotTarget.m_obj
 						: swapChain->currentDrawableTexture()
 						;
@@ -2759,6 +2759,7 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 
 		// currently active objects data
 		Texture              m_screenshotTarget;
+		FrameBufferHandle    m_screenshotTargetFrameBufferHandle;
 		ShaderMtl            m_screenshotBlitProgramVsh;
 		ShaderMtl            m_screenshotBlitProgramFsh;
 		ProgramMtl           m_screenshotBlitProgram;
@@ -4196,45 +4197,39 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 		if (0 != _render->m_numScreenShots
 		||  NULL != m_capture)
 		{
-			if (m_screenshotTarget)
+			MTL_RELEASE(m_screenshotTarget);
+
+			const ScreenShot& screenShot = _render->m_screenShot[0];
+			m_screenshotTargetFrameBufferHandle = screenShot.handle;
+			const FrameBufferMtl& frameBuffer = (!isValid(screenShot.handle)) ? m_mainFrameBuffer : m_frameBuffers[m_screenshotTargetFrameBufferHandle.idx];
+
+			TextureDescriptor desc = newTextureDescriptor();
+
+			desc.textureType = MTLTextureType2D;
+			desc.pixelFormat = getSwapChainPixelFormat(frameBuffer.m_swapChain);
+			desc.width  = frameBuffer.m_width;
+			desc.height = frameBuffer.m_height;
+			desc.depth  = 1;
+			desc.mipmapLevelCount = 1;
+			desc.sampleCount = 1;
+			desc.arrayLength = 1;
+
+			if (s_renderMtl->m_hasCPUCacheModesAndStorageModes)
 			{
-				if (m_screenshotTarget.width()  != m_resolution.width
-				||  m_screenshotTarget.height() != m_resolution.height)
-				{
-					MTL_RELEASE(m_screenshotTarget, 0);
-				}
+				desc.cpuCacheMode = MTLCPUCacheModeDefaultCache;
+				desc.storageMode = BX_ENABLED(BX_PLATFORM_IOS)
+					? (MTLStorageMode)0 // MTLStorageModeShared
+					: (MTLStorageMode)1 // MTLStorageModeManaged
+					;
+
+				desc.usage = 0
+					| MTLTextureUsageRenderTarget
+					| MTLTextureUsageShaderRead
+					;
 			}
 
-			if (NULL == m_screenshotTarget)
-			{
-				TextureDescriptor desc = newTextureDescriptor();
-
-				desc.textureType = MTLTextureType2D;
-				desc.pixelFormat = getSwapChainPixelFormat(m_mainFrameBuffer.m_swapChain);
-				desc.width  = m_resolution.width;
-				desc.height = m_resolution.height;
-				desc.depth  = 1;
-				desc.mipmapLevelCount = 1;
-				desc.sampleCount = 1;
-				desc.arrayLength = 1;
-
-				if (s_renderMtl->m_hasCPUCacheModesAndStorageModes)
-				{
-					desc.cpuCacheMode = MTLCPUCacheModeDefaultCache;
-					desc.storageMode = BX_ENABLED(BX_PLATFORM_IOS) || BX_ENABLED(BX_PLATFORM_VISIONOS)
-						? (MTLStorageMode)0 // MTLStorageModeShared
-						: (MTLStorageMode)1 // MTLStorageModeManaged
-						;
-
-					desc.usage = 0
-						| MTLTextureUsageRenderTarget
-						| MTLTextureUsageShaderRead
-						;
-				}
-
-				m_screenshotTarget = m_device.newTextureWithDescriptor(desc);
-				MTL_RELEASE(desc, 0);
-			}
+			m_screenshotTarget = m_device.newTextureWithDescriptor(desc);
+			MTL_RELEASE(desc, 0);
 		}
 		else
 		{
@@ -5416,8 +5411,10 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 
 		if (m_screenshotTarget)
 		{
+			const FrameBufferMtl& frameBuffer = (!isValid(m_screenshotTargetFrameBufferHandle)) ? m_mainFrameBuffer : m_frameBuffers[m_screenshotTargetFrameBufferHandle.idx];
+
 			RenderPassDescriptor renderPassDescriptor = newRenderPassDescriptor();
-			renderPassDescriptor.colorAttachments[0].texture = m_mainFrameBuffer.m_swapChain->currentDrawableTexture();
+			renderPassDescriptor.colorAttachments[0].texture = frameBuffer.m_swapChain->currentDrawableTexture();
 			renderPassDescriptor.colorAttachments[0].storeAction = MTLStoreActionStore;
 
 			rce = m_commandBuffer.renderCommandEncoderWithDescriptor(renderPassDescriptor);
