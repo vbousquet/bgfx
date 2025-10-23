@@ -1187,6 +1187,18 @@ VK_IMPORT_DEVICE
 			VkResult result;
 			m_globalQueueFamily = UINT32_MAX;
 
+			// Declare external Vulkan context variables early to avoid goto issues
+			struct ExternalVulkanContext
+			{
+				VkInstance instance;
+				VkPhysicalDevice physicalDevice;
+				VkDevice device;
+				VkQueue queue;
+				uint32_t queueFamilyIndex;
+			};
+			const bool useExternalDevice = (_init.platformData.context != NULL);
+			ExternalVulkanContext* externalContext = useExternalDevice ? (ExternalVulkanContext*)_init.platformData.context : NULL;
+
 			if (_init.debug
 			||  _init.profile)
 			{
@@ -1235,6 +1247,60 @@ VK_IMPORT
 				goto error;
 			}
 
+			// Check for external Vulkan context (for OpenXR integration)
+			if (useExternalDevice)
+			{
+				BX_TRACE("Using external Vulkan device from platformData.context");
+				BX_TRACE("\tInstance: %p", externalContext->instance);
+				BX_TRACE("\tPhysicalDevice: %p", externalContext->physicalDevice);
+				BX_TRACE("\tDevice: %p", externalContext->device);
+				BX_TRACE("\tQueue: %p", externalContext->queue);
+				BX_TRACE("\tQueueFamilyIndex: %u", externalContext->queueFamilyIndex);
+
+				m_instance = externalContext->instance;
+				m_physicalDevice = externalContext->physicalDevice;
+				m_device = externalContext->device;
+				m_globalQueue = externalContext->queue;
+				m_globalQueueFamily = externalContext->queueFamilyIndex;
+				m_usingExternalDevice = true;
+
+				// Skip instance and device creation since we're using external handles
+				errorState = ErrorState::DeviceCreated;
+
+				// Still need to load Vulkan functions for the instance and device
+				#define VK_IMPORT_INSTANCE_FUNC(_optional, _func) \
+					_func = (PFN_##_func)vkGetInstanceProcAddr(m_instance, #_func); \
+					imported &= _optional || NULL != _func
+
+				#define VK_IMPORT_DEVICE_FUNC(_optional, _func) \
+					_func = (PFN_##_func)vkGetDeviceProcAddr(m_device, #_func); \
+					imported &= _optional || NULL != _func
+
+				VK_IMPORT_INSTANCE
+				VK_IMPORT_DEVICE
+
+				#undef VK_IMPORT_INSTANCE_FUNC
+				#undef VK_IMPORT_DEVICE_FUNC
+
+				if (!imported)
+				{
+					BX_TRACE("Init error: Failed to load instance/device functions for external context.");
+					goto error;
+				}
+
+				// Query physical device properties
+				vkGetPhysicalDeviceProperties(m_physicalDevice, &m_deviceProperties);
+				vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &m_memoryProperties);
+				vkGetPhysicalDeviceFeatures(m_physicalDevice, &m_deviceFeatures);
+
+				m_instanceApiVersion = VK_API_VERSION_1_0;  // Assume minimum version
+			}
+			else
+			{
+				m_usingExternalDevice = false;
+			}
+
+			if (!useExternalDevice)
 			{
 				s_layer[Layer::VK_LAYER_LUNARG_standard_validation].m_device.m_initialize   = _init.debug;
 				s_layer[Layer::VK_LAYER_LUNARG_standard_validation].m_instance.m_initialize = _init.debug;
@@ -1890,21 +1956,24 @@ VK_IMPORT_INSTANCE
 
 			errorState = ErrorState::DeviceCreated;
 
-			BX_TRACE("Device functions:");
+			if (!useExternalDevice)
+			{
+				BX_TRACE("Device functions:");
 #define VK_IMPORT_DEVICE_FUNC(_optional, _func)                 \
-	_func = (PFN_##_func)vkGetDeviceProcAddr(m_device, #_func); \
-	BX_TRACE("\t%p " #_func, _func);                            \
-	imported &= _optional || NULL != _func
+				_func = (PFN_##_func)vkGetDeviceProcAddr(m_device, #_func); \
+				BX_TRACE("\t%p " #_func, _func);                            \
+				imported &= _optional || NULL != _func
 VK_IMPORT_DEVICE
 #undef VK_IMPORT_DEVICE_FUNC
 
-			if (!imported)
-			{
-				BX_TRACE("Init error: Failed to load device functions.");
-				goto error;
-			}
+				if (!imported)
+				{
+					BX_TRACE("Init error: Failed to load device functions.");
+					goto error;
+				}
 
-			vkGetDeviceQueue(m_device, m_globalQueueFamily, 0, &m_globalQueue);
+				vkGetDeviceQueue(m_device, m_globalQueueFamily, 0, &m_globalQueue);
+			}
 
 			{
 				m_numFramesInFlight = _init.resolution.maxFrameLatency == 0
@@ -2135,12 +2204,18 @@ VK_IMPORT_DEVICE
 
 			if (m_timerQuerySupport)
 			{
-				m_gpuTimer.shutdown();
+				if (!m_usingExternalDevice)
+				{
+					m_gpuTimer.shutdown();
+				}
 			}
-			m_occlusionQuery.shutdown();
+			if (!m_usingExternalDevice)
+			{
+				m_occlusionQuery.shutdown();
+				preReset();
+			}
 
-			preReset();
-
+			// Always invalidate caches to ensure clean reinitialization
 			m_pipelineStateCache.invalidate();
 			m_descriptorSetLayoutCache.invalidate();
 			m_renderPassCache.invalidate();
@@ -2148,58 +2223,62 @@ VK_IMPORT_DEVICE
 			m_samplerBorderColorCache.invalidate();
 			m_imageViewCache.invalidate();
 
-			for (uint32_t ii = 0; ii < m_numFramesInFlight; ++ii)
+			// Only destroy resources when not using external device
+			if (!m_usingExternalDevice)
 			{
-				m_scratchBuffer[ii].destroy();
+				for (uint32_t ii = 0; ii < m_numFramesInFlight; ++ii)
+				{
+					m_scratchBuffer[ii].destroy();
+				}
+
+				for (uint32_t ii = 0; ii < m_numFramesInFlight; ++ii)
+				{
+					m_scratchStagingBuffer[ii].destroy();
+				}
+
+				for (uint32_t ii = 0; ii < BX_COUNTOF(m_frameBuffers); ++ii)
+				{
+					m_frameBuffers[ii].destroy();
+				}
+
+				for (uint32_t ii = 0; ii < BX_COUNTOF(m_indexBuffers); ++ii)
+				{
+					m_indexBuffers[ii].destroy();
+				}
+
+				for (uint32_t ii = 0; ii < BX_COUNTOF(m_vertexBuffers); ++ii)
+				{
+					m_vertexBuffers[ii].destroy();
+				}
+
+				for (uint32_t ii = 0; ii < BX_COUNTOF(m_shaders); ++ii)
+				{
+					m_shaders[ii].destroy();
+				}
+
+				for (uint32_t ii = 0; ii < BX_COUNTOF(m_textures); ++ii)
+				{
+					m_textures[ii].destroy();
+				}
+
+				m_backBuffer.destroy();
+
+				m_memoryLru.evictAll();
+
+				m_cmd.shutdown();
+
+				vkDestroy(m_pipelineCache);
+				vkDestroy(m_descriptorPool);
+
+				vkDestroyDevice(m_device, m_allocatorCb);
+
+				if (VK_NULL_HANDLE != m_debugReportCallback)
+				{
+					vkDestroyDebugReportCallbackEXT(m_instance, m_debugReportCallback, m_allocatorCb);
+				}
+
+				vkDestroyInstance(m_instance, m_allocatorCb);
 			}
-
-			for (uint32_t ii = 0; ii < m_numFramesInFlight; ++ii)
-			{
-				m_scratchStagingBuffer[ii].destroy();
-			}
-
-			for (uint32_t ii = 0; ii < BX_COUNTOF(m_frameBuffers); ++ii)
-			{
-				m_frameBuffers[ii].destroy();
-			}
-
-			for (uint32_t ii = 0; ii < BX_COUNTOF(m_indexBuffers); ++ii)
-			{
-				m_indexBuffers[ii].destroy();
-			}
-
-			for (uint32_t ii = 0; ii < BX_COUNTOF(m_vertexBuffers); ++ii)
-			{
-				m_vertexBuffers[ii].destroy();
-			}
-
-			for (uint32_t ii = 0; ii < BX_COUNTOF(m_shaders); ++ii)
-			{
-				m_shaders[ii].destroy();
-			}
-
-			for (uint32_t ii = 0; ii < BX_COUNTOF(m_textures); ++ii)
-			{
-				m_textures[ii].destroy();
-			}
-
-			m_backBuffer.destroy();
-
-			m_memoryLru.evictAll();
-
-			m_cmd.shutdown();
-
-			vkDestroy(m_pipelineCache);
-			vkDestroy(m_descriptorPool);
-
-			vkDestroyDevice(m_device, m_allocatorCb);
-
-			if (VK_NULL_HANDLE != m_debugReportCallback)
-			{
-				vkDestroyDebugReportCallbackEXT(m_instance, m_debugReportCallback, m_allocatorCb);
-			}
-
-			vkDestroyInstance(m_instance, m_allocatorCb);
 
 			bx::dlclose(m_vulkan1Dll);
 			m_vulkan1Dll  = NULL;
@@ -2400,13 +2479,18 @@ VK_IMPORT_DEVICE
 			bgfx::release(mem);
 		}
 
-		void overrideInternal(TextureHandle /*_handle*/, uintptr_t /*_ptr*/, uint16_t /*_layerIndex*/) override
+		void overrideInternal(TextureHandle _handle, uintptr_t _ptr, uint16_t /*_layerIndex*/) override
 		{
+			// Override the internal VkImage with an external one (for OpenXR swapchain images)
+			TextureVK& texture = m_textures[_handle.idx];
+			texture.m_textureImage.vk = (::VkImage)_ptr;
+			BX_TRACE("Vulkan overrideInternal: handle=%d, VkImage=%p", _handle.idx, _ptr);
 		}
 
-		uintptr_t getInternal(TextureHandle /*_handle*/) override
+		uintptr_t getInternal(TextureHandle _handle) override
 		{
-			return 0;
+			// Return the internal VkImage
+			return uintptr_t(m_textures[_handle.idx].m_textureImage.vk);
 		}
 
 		void destroyTexture(TextureHandle _handle) override
@@ -4560,6 +4644,7 @@ VK_IMPORT_DEVICE
 		VkInstance       m_instance;
 		VkPhysicalDevice m_physicalDevice;
 		uint32_t         m_instanceApiVersion;
+		bool             m_usingExternalDevice;
 
 		VkPhysicalDeviceProperties       m_deviceProperties;
 		VkPhysicalDeviceMemoryProperties m_memoryProperties;
@@ -4633,7 +4718,7 @@ VK_IMPORT_DEVICE
 		FrameBufferHandle m_fbh;
 	};
 
-	static RendererContextVK* s_renderVK;
+	RendererContextVK* s_renderVK;
 
 	RendererContextI* rendererCreate(const Init& _init)
 	{
