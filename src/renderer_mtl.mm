@@ -4221,7 +4221,7 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 		if (0 != _render->m_numScreenShots
 		||  NULL != m_capture)
 		{
-			MTL_RELEASE(m_screenshotTarget);
+			MTL_RELEASE(m_screenshotTarget, 0);
 
 			const ScreenShot& screenShot = _render->m_screenShot[0];
 			m_screenshotTargetFrameBufferHandle = screenShot.handle;

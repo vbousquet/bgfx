@@ -1217,6 +1217,20 @@ VK_IMPORT_DEVICE
 			VkResult result;
 			m_globalQueueFamily = UINT32_MAX;
 
+			// Declare external Vulkan context variables early to avoid goto issues
+			struct ExternalVulkanContext
+			{
+				VkInstance instance;
+				VkPhysicalDevice physicalDevice;
+				VkDevice device;
+				VkQueue queue;
+				uint32_t queueFamilyIndex;
+				bool has_KHR_fragment_shading_rate;
+				bool has_EXT_shader_viewport_index_layer;
+			};
+			m_usingExternalDevice = (_init.platformData.context != NULL);
+			ExternalVulkanContext* externalContext = m_usingExternalDevice ? (ExternalVulkanContext*)_init.platformData.context : NULL;
+
 			if (_init.debug
 			||  _init.profile)
 			{
@@ -1265,6 +1279,318 @@ VK_IMPORT
 				goto error;
 			}
 
+			// Check for external Vulkan context (for OpenXR integration)
+			if (m_usingExternalDevice)
+			{
+				BX_TRACE("Using external Vulkan device from platformData.context");
+				BX_TRACE("\tInstance: %p", externalContext->instance);
+				BX_TRACE("\tPhysicalDevice: %p", externalContext->physicalDevice);
+				BX_TRACE("\tDevice: %p", externalContext->device);
+				BX_TRACE("\tQueue: %p", externalContext->queue);
+				BX_TRACE("\tQueueFamilyIndex: %u", externalContext->queueFamilyIndex);
+
+				m_instance = externalContext->instance;
+
+				dumpExtensions(VK_NULL_HANDLE, s_extension);
+
+				m_device = externalContext->device;
+				m_globalQueue = externalContext->queue;
+				m_globalQueueFamily = externalContext->queueFamilyIndex;
+
+				s_extension[Extension::KHR_fragment_shading_rate].m_supported = externalContext->has_KHR_fragment_shading_rate;
+				s_extension[Extension::EXT_shader_viewport_index_layer].m_supported = externalContext->has_EXT_shader_viewport_index_layer;
+				s_extension[Extension::KHR_get_physical_device_properties2].m_supported = true; // always used by BGFX (without testing before, which seems like a bug)
+
+				// Skip instance and device creation since we're using external handles
+				errorState = ErrorState::DeviceCreated;
+
+				// Still need to load Vulkan functions for the instance and device
+				#define VK_IMPORT_INSTANCE_FUNC(_optional, _func) \
+					_func = (PFN_##_func)vkGetInstanceProcAddr(m_instance, #_func); \
+					imported &= _optional || NULL != _func
+
+				VK_IMPORT_INSTANCE
+
+				#undef VK_IMPORT_INSTANCE_FUNC
+
+				if (!imported)
+				{
+					BX_TRACE("Init error: Failed to load instance/device functions for external context.");
+					goto error;
+				}
+
+				// Query physical device properties
+				m_physicalDevice = externalContext->physicalDevice;
+
+				dumpExtensions(m_physicalDevice, &s_extension[0]);
+
+				m_deviceShadingRateImageProperties = {};
+				m_deviceShadingRateImageProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR;
+
+				m_deviceProperties = {};
+				m_deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+				m_deviceProperties.pNext = &m_deviceShadingRateImageProperties;
+
+				vkGetPhysicalDeviceProperties2(m_physicalDevice, &m_deviceProperties);
+
+				{
+					VkPhysicalDeviceProperties& pdp = m_deviceProperties.properties;
+
+					BX_TRACE("Physical device:");
+					BX_TRACE("\t          Name: %s", pdp.deviceName);
+					BX_TRACE("\t   API version: %d.%d.%d"
+						, VK_API_VERSION_MAJOR(pdp.apiVersion)
+						, VK_API_VERSION_MINOR(pdp.apiVersion)
+						, VK_API_VERSION_PATCH(pdp.apiVersion)
+					);
+					BX_TRACE("\t   API variant: %d", VK_API_VERSION_VARIANT(pdp.apiVersion));
+					BX_TRACE("\tDriver version: %x", pdp.driverVersion);
+					BX_TRACE("\t      VendorId: %x", pdp.vendorID);
+					BX_TRACE("\t      DeviceId: %x", pdp.deviceID);
+					BX_TRACE("\t          Type: %d", pdp.deviceType);
+
+					if (VK_PHYSICAL_DEVICE_TYPE_CPU == pdp.deviceType)
+					{
+						pdp.vendorID = BGFX_PCI_ID_SOFTWARE_RASTERIZER;
+					}
+				}
+
+				g_caps.vendorId = uint16_t(m_deviceProperties.properties.vendorID);
+				g_caps.deviceId = uint16_t(m_deviceProperties.properties.deviceID);
+
+				BX_TRACE("Using physical device: %s", m_deviceProperties.properties.deviceName);
+
+				VkPhysicalDeviceFeatures supportedFeatures;
+
+				if (s_extension[Extension::KHR_get_physical_device_properties2].m_supported)
+				{
+					VkPhysicalDeviceFeatures2KHR deviceFeatures2;
+					deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR;
+					deviceFeatures2.pNext = NULL;
+
+					VkBaseOutStructure* next = (VkBaseOutStructure*)&deviceFeatures2;
+
+					if (false) // Not implemented for external context s_extension[Extension::EXT_line_rasterization].m_supported)
+					{
+						next->pNext = (VkBaseOutStructure*)&lineRasterizationFeatures;
+						next = (VkBaseOutStructure*)&lineRasterizationFeatures;
+						lineRasterizationFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT;
+						lineRasterizationFeatures.pNext = NULL;
+					}
+
+					if (false) // Not implemented for external context s_extension[Extension::EXT_custom_border_color].m_supported)
+					{
+						next->pNext = (VkBaseOutStructure*)&customBorderColorFeatures;
+						next = (VkBaseOutStructure*)&customBorderColorFeatures;
+						customBorderColorFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT;
+						customBorderColorFeatures.pNext = NULL;
+					}
+
+					nextFeatures = deviceFeatures2.pNext;
+
+					vkGetPhysicalDeviceFeatures2KHR(m_physicalDevice, &deviceFeatures2);
+					supportedFeatures = deviceFeatures2.features;
+				}
+				else
+				{
+					vkGetPhysicalDeviceFeatures(m_physicalDevice, &supportedFeatures);
+				}
+
+				if (s_extension[Extension::KHR_fragment_shading_rate].m_supported)
+				{
+					fragmentShadingRate.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+					fragmentShadingRate.pNext = (VkBaseOutStructure*)nextFeatures;
+					fragmentShadingRate.pipelineFragmentShadingRate = VK_TRUE;
+					fragmentShadingRate.primitiveFragmentShadingRate = VK_TRUE;
+					fragmentShadingRate.attachmentFragmentShadingRate = VK_FALSE;
+
+					nextFeatures = &fragmentShadingRate;
+				}
+
+				bx::memSet(&m_deviceFeatures, 0, sizeof(m_deviceFeatures) );
+
+				m_deviceFeatures.fullDrawIndexUint32               = supportedFeatures.fullDrawIndexUint32;
+				m_deviceFeatures.imageCubeArray                    = supportedFeatures.imageCubeArray            && (_init.capabilities & BGFX_CAPS_TEXTURE_CUBE_ARRAY);
+				m_deviceFeatures.independentBlend                  = supportedFeatures.independentBlend          && (_init.capabilities & BGFX_CAPS_BLEND_INDEPENDENT);
+				m_deviceFeatures.multiDrawIndirect                 = supportedFeatures.multiDrawIndirect         && (_init.capabilities & BGFX_CAPS_DRAW_INDIRECT);
+				m_deviceFeatures.drawIndirectFirstInstance         = supportedFeatures.drawIndirectFirstInstance && (_init.capabilities & BGFX_CAPS_DRAW_INDIRECT);
+				m_deviceFeatures.depthClamp                        = supportedFeatures.depthClamp;
+				m_deviceFeatures.fillModeNonSolid                  = supportedFeatures.fillModeNonSolid;
+				m_deviceFeatures.largePoints                       = supportedFeatures.largePoints;
+				m_deviceFeatures.samplerAnisotropy                 = supportedFeatures.samplerAnisotropy;
+				m_deviceFeatures.textureCompressionETC2            = supportedFeatures.textureCompressionETC2;
+				m_deviceFeatures.textureCompressionBC              = supportedFeatures.textureCompressionBC;
+				m_deviceFeatures.vertexPipelineStoresAndAtomics    = supportedFeatures.vertexPipelineStoresAndAtomics;
+				m_deviceFeatures.fragmentStoresAndAtomics          = supportedFeatures.fragmentStoresAndAtomics;
+				m_deviceFeatures.shaderImageGatherExtended         = supportedFeatures.shaderImageGatherExtended;
+				m_deviceFeatures.shaderStorageImageExtendedFormats = supportedFeatures.shaderStorageImageExtendedFormats;
+				m_deviceFeatures.shaderClipDistance                = supportedFeatures.shaderClipDistance;
+				m_deviceFeatures.shaderCullDistance                = supportedFeatures.shaderCullDistance;
+				m_deviceFeatures.shaderResourceMinLod              = supportedFeatures.shaderResourceMinLod;
+				m_deviceFeatures.geometryShader                    = supportedFeatures.geometryShader;
+
+				m_lineAASupport = true
+					&& false // Not implemented for external context s_extension[Extension::EXT_line_rasterization].m_supported
+					&& lineRasterizationFeatures.smoothLines
+					;
+
+				m_borderColorSupport = true
+					&& false // Not implemented for external context s_extension[Extension::EXT_custom_border_color].m_supported
+					&& customBorderColorFeatures.customBorderColors
+					;
+
+				m_timerQuerySupport = m_deviceProperties.properties.limits.timestampComputeAndGraphics;
+
+				const bool indirectDrawSupport = true
+					&& m_deviceFeatures.multiDrawIndirect
+					&& m_deviceFeatures.drawIndirectFirstInstance
+					;
+
+				g_caps.supported |= ( 0
+					| BGFX_CAPS_ALPHA_TO_COVERAGE
+					| (m_deviceFeatures.independentBlend ? BGFX_CAPS_BLEND_INDEPENDENT : 0)
+					| BGFX_CAPS_COMPUTE
+					| (indirectDrawSupport ? BGFX_CAPS_DRAW_INDIRECT : 0)
+					| BGFX_CAPS_FRAGMENT_DEPTH
+					| BGFX_CAPS_IMAGE_RW
+					| (m_deviceFeatures.fullDrawIndexUint32 ? BGFX_CAPS_INDEX32 : 0)
+					| BGFX_CAPS_INSTANCING
+					| BGFX_CAPS_OCCLUSION_QUERY
+					| (!headless ? BGFX_CAPS_SWAP_CHAIN : 0)
+					| BGFX_CAPS_TEXTURE_2D_ARRAY
+					| BGFX_CAPS_TEXTURE_3D
+					| BGFX_CAPS_TEXTURE_BLIT
+					| BGFX_CAPS_TEXTURE_COMPARE_ALL
+					| (m_deviceFeatures.imageCubeArray ? BGFX_CAPS_TEXTURE_CUBE_ARRAY : 0)
+					| BGFX_CAPS_TEXTURE_READ_BACK
+					| BGFX_CAPS_VERTEX_ATTRIB_HALF
+					| BGFX_CAPS_VERTEX_ATTRIB_UINT10
+					| BGFX_CAPS_VERTEX_ID
+					| (m_deviceFeatures.geometryShader ? BGFX_CAPS_PRIMITIVE_ID : 0)
+					);
+
+				g_caps.supported |= 0
+					| 0 // Not implemented for external context (s_extension[Extension::EXT_conservative_rasterization ].m_supported ? BGFX_CAPS_CONSERVATIVE_RASTER  : 0)
+					| (s_extension[Extension::EXT_shader_viewport_index_layer].m_supported ? BGFX_CAPS_VIEWPORT_LAYER_ARRAY : 0)
+					| 0 // Not implemented for external context (s_extension[Extension::KHR_draw_indirect_count        ].m_supported && indirectDrawSupport ? BGFX_CAPS_DRAW_INDIRECT_COUNT : 0)
+					| (s_extension[Extension::KHR_fragment_shading_rate      ].m_supported ? BGFX_CAPS_VARIABLE_RATE_SHADING : 0)
+					;
+
+				m_variableRateShadingSupported = s_extension[Extension::KHR_fragment_shading_rate].m_supported;
+
+				const uint32_t maxAttachments = bx::min<uint32_t>(
+					  m_deviceProperties.properties.limits.maxFragmentOutputAttachments
+					, m_deviceProperties.properties.limits.maxColorAttachments
+					);
+
+				g_caps.limits.maxTextureSize     = m_deviceProperties.properties.limits.maxImageDimension2D;
+				g_caps.limits.maxTextureLayers   = m_deviceProperties.properties.limits.maxImageArrayLayers;
+				g_caps.limits.maxFBAttachments   = bx::min<uint32_t>(maxAttachments, BGFX_CONFIG_MAX_FRAME_BUFFER_ATTACHMENTS);
+				g_caps.limits.maxTextureSamplers = bx::min<uint32_t>(m_deviceProperties.properties.limits.maxPerStageResources, BGFX_CONFIG_MAX_TEXTURE_SAMPLERS);
+				g_caps.limits.maxComputeBindings = bx::min<uint32_t>(m_deviceProperties.properties.limits.maxPerStageResources, BGFX_MAX_COMPUTE_BINDINGS);
+				g_caps.limits.maxVertexStreams   = bx::min<uint32_t>(m_deviceProperties.properties.limits.maxVertexInputBindings, BGFX_CONFIG_MAX_VERTEX_STREAMS);
+
+				{
+					const VkSampleCountFlags sampleMask = ~0
+						& m_deviceProperties.properties.limits.framebufferColorSampleCounts
+						& m_deviceProperties.properties.limits.framebufferDepthSampleCounts
+						;
+
+					for (uint16_t ii = 0, last = 0; ii < BX_COUNTOF(s_msaa); ++ii)
+					{
+						const VkSampleCountFlags sampleBit = s_msaa[ii].Sample;
+
+						if (sampleBit & sampleMask)
+						{
+							last = ii;
+						}
+						else
+						{
+							s_msaa[ii] = s_msaa[last];
+						}
+					}
+				}
+
+				{
+					const VkExtent2D maxFragmentSize = m_deviceShadingRateImageProperties.maxFragmentSize;
+
+					for (uint32_t ii = 0; ii < BX_COUNTOF(s_shadingRate); ++ii)
+					{
+						ShadingRateVk& shadingRate = s_shadingRate[ii];
+						shadingRate.fragmentSize.width  = bx::min(shadingRate.initFragmentSize.width,  maxFragmentSize.width);
+						shadingRate.fragmentSize.height = bx::min(shadingRate.initFragmentSize.height, maxFragmentSize.height);
+					}
+				}
+
+				for (uint32_t ii = 0; ii < TextureFormat::Count; ++ii)
+				{
+					uint16_t support = BGFX_CAPS_FORMAT_TEXTURE_NONE;
+
+					const bool depth = bimg::isDepth(bimg::TextureFormat::Enum(ii) );
+					VkFormat fmt = depth
+						? s_textureFormat[ii].m_fmtDsv
+						: s_textureFormat[ii].m_fmt
+						;
+
+					for (uint32_t jj = 0, num = depth ? 1 : 2; jj < num; ++jj)
+					{
+						if (VK_FORMAT_UNDEFINED != fmt)
+						{
+							for (uint32_t test = 0; test < BX_COUNTOF(s_imageTest); ++test)
+							{
+								const ImageTest& it = s_imageTest[test];
+
+								VkImageFormatProperties ifp;
+								result = vkGetPhysicalDeviceImageFormatProperties(
+									  m_physicalDevice
+									, fmt
+									, it.type
+									, VK_IMAGE_TILING_OPTIMAL
+									, it.usage
+									, it.flags
+									, &ifp
+									);
+
+								if (VK_SUCCESS == result)
+								{
+									support |= it.formatCaps[jj];
+
+									const bool multisample = VK_SAMPLE_COUNT_1_BIT < ifp.sampleCounts;
+									if (it.usage & VK_IMAGE_USAGE_SAMPLED_BIT)
+									{
+										support |= 0
+											| BGFX_CAPS_FORMAT_TEXTURE_VERTEX
+											| (multisample ? BGFX_CAPS_FORMAT_TEXTURE_MSAA : 0)
+											;
+									}
+
+									if (it.usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) )
+									{
+										support |= 0
+											| BGFX_CAPS_FORMAT_TEXTURE_MIP_AUTOGEN
+											| (multisample ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA : 0)
+											;
+									}
+								}
+							}
+						}
+
+						fmt = s_textureFormat[ii].m_fmtSrgb;
+					}
+
+					g_caps.formats[ii] = support;
+				}
+
+				vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &m_memoryProperties);
+
+				// Use vkEnumerateInstanceVersion if available (Vulkan 1.1+)
+				PFN_vkEnumerateInstanceVersion enumerateInstanceVersion = (PFN_vkEnumerateInstanceVersion)vkGetInstanceProcAddr(m_instance, "vkEnumerateInstanceVersion");
+				if (enumerateInstanceVersion)
+					enumerateInstanceVersion(&m_instanceApiVersion);
+				else
+					m_instanceApiVersion = VK_API_VERSION_1_0;  // Assume minimum version
+			}
+			else
 			{
 				s_layer[Layer::VK_LAYER_LUNARG_standard_validation].m_device.m_initialize   = _init.debug;
 				s_layer[Layer::VK_LAYER_LUNARG_standard_validation].m_instance.m_initialize = _init.debug;
@@ -2010,7 +2336,7 @@ VK_IMPORT_DEVICE
 
 				m_numWindows = 0;
 
-				if (!headless)
+				if (!headless && !m_usingExternalDevice)
 				{
 					m_textVideoMem.resize(false, _init.resolution.width, _init.resolution.height);
 					m_textVideoMem.clear();
@@ -2267,14 +2593,18 @@ VK_IMPORT_DEVICE
 				vkDestroy(m_descriptorPool[ii]);
 			}
 
-			vkDestroyDevice(m_device, m_allocatorCb);
-
 			if (VK_NULL_HANDLE != m_debugReportCallback)
 			{
 				vkDestroyDebugReportCallbackEXT(m_instance, m_debugReportCallback, m_allocatorCb);
 			}
 
-			vkDestroyInstance(m_instance, m_allocatorCb);
+			// Only destroy resources when not using external device
+			if (!m_usingExternalDevice)
+			{
+				vkDestroyDevice(m_device, m_allocatorCb);
+
+				vkDestroyInstance(m_instance, m_allocatorCb);
+			}
 
 			bx::dlclose(m_vulkan1Dll);
 			m_vulkan1Dll  = NULL;
@@ -2466,13 +2796,18 @@ VK_IMPORT_DEVICE
 			bgfx::release(mem);
 		}
 
-		void overrideInternal(TextureHandle /*_handle*/, uintptr_t /*_ptr*/, uint16_t /*_layerIndex*/) override
+		void overrideInternal(TextureHandle _handle, uintptr_t _ptr, uint16_t /*_layerIndex*/) override
 		{
+			// Override the internal VkImage with an external one (for OpenXR swapchain images)
+			TextureVK& texture = m_textures[_handle.idx];
+			texture.m_textureImage.vk = (::VkImage)_ptr;
+			BX_TRACE("Vulkan overrideInternal: handle=%d, VkImage=%p", _handle.idx, _ptr);
 		}
 
-		uintptr_t getInternal(TextureHandle /*_handle*/) override
+		uintptr_t getInternal(TextureHandle _handle) override
 		{
-			return 0;
+			// Return the internal VkImage
+			return uintptr_t(m_textures[_handle.idx].m_textureImage.vk);
 		}
 
 		void destroyTexture(TextureHandle _handle) override
@@ -4641,6 +4976,7 @@ VK_IMPORT_DEVICE
 		VkInstance       m_instance;
 		VkPhysicalDevice m_physicalDevice;
 		uint32_t         m_instanceApiVersion;
+		bool             m_usingExternalDevice;
 
 		VkPhysicalDeviceFragmentShadingRatePropertiesKHR m_deviceShadingRateImageProperties;
 		VkPhysicalDeviceProperties2       m_deviceProperties;
