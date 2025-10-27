@@ -935,6 +935,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 				| BGFX_CAPS_VERTEX_ATTRIB_HALF
 				| BGFX_CAPS_VERTEX_ATTRIB_UINT10
 				| BGFX_CAPS_VERTEX_ID
+				| BGFX_CAPS_VIEWPORT_LAYER_ARRAY
 				);
 
 			g_caps.supported |= (m_device->supportsFamily(MTL::GPUFamilyApple7) || m_device->supportsFamily(MTL::GPUFamilyMac2) )
@@ -2240,6 +2241,17 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 			{
 				FrameBufferMtl& frameBuffer = m_frameBuffers[_fbh.idx];
 
+				uint16_t maxNumLayers = 65535;
+				for (uint32_t ii = 0; ii < frameBuffer.m_num; ++ii)
+				{
+					if (frameBuffer.m_colorAttachment[ii].numLayers < maxNumLayers)
+						maxNumLayers = frameBuffer.m_colorAttachment[ii].numLayers;
+				}
+				if (isValid(frameBuffer.m_depthHandle) && frameBuffer.m_depthAttachment.numLayers < maxNumLayers)
+					maxNumLayers = frameBuffer.m_depthAttachment.numLayers;
+
+				_renderPassDescriptor->setRenderTargetArrayLength(maxNumLayers);
+
 				for (uint32_t ii = 0; ii < frameBuffer.m_num; ++ii)
 				{
 					const TextureMtl& texture = m_textures[frameBuffer.m_colorHandle[ii].idx];
@@ -2824,6 +2836,11 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 					: NULL
 					);
 
+				if (program.m_vsh && m_layeredRenderingShaders.find(program.m_vsh->m_hash) != m_layeredRenderingShaders.end())
+				{
+					pd->setInputPrimitiveTopology(MTL::PrimitiveTopologyClassTriangle);
+				}
+
 				MTL::VertexDescriptor* vertexDesc = m_vertexDescriptor;
 				reset(vertexDesc);
 
@@ -3242,6 +3259,10 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 		MTL::RenderCommandEncoder*  m_renderCommandEncoder;
 		MTL::ComputeCommandEncoder* m_computeCommandEncoder;
 		FrameBufferHandle           m_renderCommandEncoderFbh;
+
+		typedef stl::unordered_set<uint32_t> LayeredRenderingShaderSet;
+
+		LayeredRenderingShaderSet m_layeredRenderingShaders;
 	};
 
 	PipelineStateMtl* videoGetComputePipelineState(RendererContextMtl* _renderer, ProgramHandle _handle)
@@ -3419,6 +3440,12 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 		murmur.add(hashOut);
 		murmur.add(code, shaderSize);
 		m_hash = murmur.end();
+
+		if (bx::strFind(code, "render_target_array_index").isEmpty() == false)
+		{
+			BX_TRACE("Shader uses layered rendering (render_target_array_index found), hash: %08x", m_hash);
+			s_renderMtl->m_layeredRenderingShaders.insert(m_hash);
+		}
 	}
 
 	void ProgramMtl::create(const ShaderMtl* _vsh, const ShaderMtl* _fsh)
