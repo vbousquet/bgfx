@@ -2334,6 +2334,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 				| BGFX_STATE_BLEND_INDEPENDENT
 				| BGFX_STATE_MSAA
 				| BGFX_STATE_BLEND_ALPHA_TO_COVERAGE
+				| BGFX_STATE_PT_MASK
 				);
 
 			const bool independentBlendEnable = !!(BGFX_STATE_BLEND_INDEPENDENT & _state);
@@ -2513,9 +2514,18 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 				}
 #endif
 
-				if (program.m_vsh && m_layeredRenderingShaders.find(program.m_vsh->m_hash) != m_layeredRenderingShaders.end())
+				switch (_state & BGFX_STATE_PT_MASK)
 				{
-					pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
+					case BGFX_STATE_PT_POINTS:
+						pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassPoint;
+						break;
+					case BGFX_STATE_PT_LINES:
+					case BGFX_STATE_PT_LINESTRIP:
+						pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassLine;
+						break;
+					default:
+						pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
+						break;
 				}
 
 				VertexDescriptor vertexDesc = m_vertexDescriptor;
@@ -2843,10 +2853,6 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 		RenderCommandEncoder  m_renderCommandEncoder;
 		ComputeCommandEncoder m_computeCommandEncoder;
 		FrameBufferHandle     m_renderCommandEncoderFrameBufferHandle;
-
-		typedef stl::unordered_set<uint32_t> LayeredRenderingShaderSet;
-
-		LayeredRenderingShaderSet m_layeredRenderingShaders;
 	};
 
 	RendererContextI* rendererCreate(const Init& _init)
@@ -2973,12 +2979,6 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 //		murmur.add(numAttrs);
 //		murmur.add(m_attrMask, numAttrs);
 		m_hash = murmur.end();
-
-		if (bx::strFind(code, "render_target_array_index").isEmpty() == false)
-		{
-			BX_TRACE("Shader uses layered rendering (render_target_array_index found), hash: %08x", m_hash);
-			s_renderMtl->m_layeredRenderingShaders.insert(m_hash);
-		}
 	}
 
 	void ProgramMtl::create(const ShaderMtl* _vsh, const ShaderMtl* _fsh)
@@ -5006,6 +5006,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 				   | BGFX_STATE_BLEND_INDEPENDENT
 				   | BGFX_STATE_MSAA
 				   | BGFX_STATE_BLEND_ALPHA_TO_COVERAGE
+				   | BGFX_STATE_PT_MASK
 				   ) & changedFlags
 				|| ( (blendFactor != draw.m_rgba) && !!(newFlags & BGFX_STATE_BLEND_INDEPENDENT) ) )
 				{
