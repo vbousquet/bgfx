@@ -612,47 +612,47 @@ public static partial class bgfx
 	public enum BufferFlags : ushort
 	{
 		/// <summary>
-		/// 1 8-bit value
+		/// 1 x 8-bit value
 		/// </summary>
 		ComputeFormat8x1       = 0x0001,
 	
 		/// <summary>
-		/// 2 8-bit values
+		/// 2 x 8-bit values
 		/// </summary>
 		ComputeFormat8x2       = 0x0002,
 	
 		/// <summary>
-		/// 4 8-bit values
+		/// 4 x 8-bit values
 		/// </summary>
 		ComputeFormat8x4       = 0x0003,
 	
 		/// <summary>
-		/// 1 16-bit value
+		/// 1 x 16-bit value
 		/// </summary>
 		ComputeFormat16x1      = 0x0004,
 	
 		/// <summary>
-		/// 2 16-bit values
+		/// 2 x 16-bit values
 		/// </summary>
 		ComputeFormat16x2      = 0x0005,
 	
 		/// <summary>
-		/// 4 16-bit values
+		/// 4 x 16-bit values
 		/// </summary>
 		ComputeFormat16x4      = 0x0006,
 	
 		/// <summary>
-		/// 1 32-bit value
+		/// 1 x 32-bit value
 		/// </summary>
 		ComputeFormat32x1      = 0x0007,
 	
 		/// <summary>
-		/// 2 32-bit values
+		/// 2 x 32-bit values
 		/// </summary>
 		ComputeFormat32x2      = 0x0008,
 	
 		/// <summary>
-		/// 4 32-bit values
+		/// 4 x 32-bit values
 		/// </summary>
 		ComputeFormat32x4      = 0x0009,
 		ComputeFormatShift     = 0,
@@ -1142,24 +1142,29 @@ public static partial class bgfx
 		TransparentBackbuffer  = 0x0000000004000000,
 	
 		/// <summary>
+		/// Variable Rate Shading
+		/// </summary>
+		VariableRateShading    = 0x0000000008000000,
+	
+		/// <summary>
 		/// Vertex attribute half-float is supported.
 		/// </summary>
-		VertexAttribHalf       = 0x0000000008000000,
+		VertexAttribHalf       = 0x0000000010000000,
 	
 		/// <summary>
 		/// Vertex attribute 10_10_10_2 is supported.
 		/// </summary>
-		VertexAttribUint10     = 0x0000000010000000,
+		VertexAttribUint10     = 0x0000000020000000,
 	
 		/// <summary>
 		/// Rendering with VertexID only is supported.
 		/// </summary>
-		VertexId               = 0x0000000020000000,
+		VertexId               = 0x0000000040000000,
 	
 		/// <summary>
 		/// Viewport layer is available in vertex shader.
 		/// </summary>
-		ViewportLayerArray     = 0x0000000040000000,
+		ViewportLayerArray     = 0x0000000080000000,
 	
 		/// <summary>
 		/// All texture compare modes are supported.
@@ -1617,6 +1622,26 @@ public static partial class bgfx
 		ETC2A1,
 	
 		/// <summary>
+		/// EAC R11 UNORM
+		/// </summary>
+		EACR11,
+	
+		/// <summary>
+		/// EAC R11 SNORM
+		/// </summary>
+		EACR11S,
+	
+		/// <summary>
+		/// EAC RG11 UNORM
+		/// </summary>
+		EACRG11,
+	
+		/// <summary>
+		/// EAC RG11 SNORM
+		/// </summary>
+		EACRG11S,
+	
+		/// <summary>
 		/// PVRTC1 RGB 2BPP
 		/// </summary>
 		PTC12,
@@ -1834,6 +1859,26 @@ public static partial class bgfx
 		Count
 	}
 	
+	public enum UniformFreq
+	{
+		/// <summary>
+		/// Changing per draw call.
+		/// </summary>
+		Draw,
+	
+		/// <summary>
+		/// Changing per view.
+		/// </summary>
+		View,
+	
+		/// <summary>
+		/// Changing per frame.
+		/// </summary>
+		Frame,
+	
+		Count
+	}
+	
 	public enum BackbufferRatio
 	{
 		/// <summary>
@@ -1992,6 +2037,46 @@ public static partial class bgfx
 		Count
 	}
 	
+	public enum ShadingRate
+	{
+		/// <summary>
+		/// 1x1
+		/// </summary>
+		Rate1x1,
+	
+		/// <summary>
+		/// 1x2
+		/// </summary>
+		Rate1x2,
+	
+		/// <summary>
+		/// 2x1
+		/// </summary>
+		Rate2x1,
+	
+		/// <summary>
+		/// 2x2
+		/// </summary>
+		Rate2x2,
+	
+		/// <summary>
+		/// 2x4
+		/// </summary>
+		Rate2x4,
+	
+		/// <summary>
+		/// 4x2
+		/// </summary>
+		Rate4x2,
+	
+		/// <summary>
+		/// 4x4
+		/// </summary>
+		Rate4x4,
+	
+		Count
+	}
+	
 	public enum NativeWindowHandleType
 	{
 		/// <summary>
@@ -2064,8 +2149,9 @@ public static partial class bgfx
 			public uint maxOcclusionQueries;
 			public uint maxEncoders;
 			public uint minResourceCbSize;
-			public uint transientVbSize;
-			public uint transientIbSize;
+			public uint maxTransientVbSize;
+			public uint maxTansientIbSize;
+			public uint minUniformBufferSize;
 		}
 	
 		public RendererType rendererType;
@@ -2077,7 +2163,7 @@ public static partial class bgfx
 		public byte numGPUs;
 		public fixed uint gpu[4];
 		public Limits limits;
-		public fixed ushort formats[96];
+		public fixed ushort formats[100];
 	}
 	
 	public unsafe struct InternalData
@@ -2098,7 +2184,8 @@ public static partial class bgfx
 	
 	public unsafe struct Resolution
 	{
-		public TextureFormat format;
+		public TextureFormat formatColor;
+		public TextureFormat formatDepthStencil;
 		public uint width;
 		public uint height;
 		public uint reset;
@@ -2113,8 +2200,9 @@ public static partial class bgfx
 		{
 			public ushort maxEncoders;
 			public uint minResourceCbSize;
-			public uint transientVbSize;
-			public uint transientIbSize;
+			public uint maxTransientVbSize;
+			public uint maxTransientIbSize;
+			public uint minUniformBufferSize;
 		}
 	
 		public RendererType type;
@@ -3366,6 +3454,41 @@ public static partial class bgfx
 	public static extern unsafe UniformHandle create_uniform([MarshalAs(UnmanagedType.LPStr)] string _name, UniformType _type, ushort _num);
 	
 	/// <summary>
+	/// Create shader uniform parameter.
+	/// @remarks
+	///   1. Uniform names are unique. It's valid to call `bgfx::createUniform`
+	///      multiple times with the same uniform name. The library will always
+	///      return the same handle, but the handle reference count will be
+	///      incremented. This means that the same number of `bgfx::destroyUniform`
+	///      must be called to properly destroy the uniform.
+	///   2. Predefined uniforms (declared in `bgfx_shader.sh`):
+	///      - `u_viewRect vec4(x, y, width, height)` - view rectangle for current
+	///        view, in pixels.
+	///      - `u_viewTexel vec4(1.0/width, 1.0/height, undef, undef)` - inverse
+	///        width and height
+	///      - `u_view mat4` - view matrix
+	///      - `u_invView mat4` - inverted view matrix
+	///      - `u_proj mat4` - projection matrix
+	///      - `u_invProj mat4` - inverted projection matrix
+	///      - `u_viewProj mat4` - concatenated view projection matrix
+	///      - `u_invViewProj mat4` - concatenated inverted view projection matrix
+	///      - `u_model mat4[BGFX_CONFIG_MAX_BONES]` - array of model matrices.
+	///      - `u_modelView mat4` - concatenated model view matrix, only first
+	///        model matrix from array is used.
+	///      - `u_invModelView mat4` - inverted concatenated model view matrix.
+	///      - `u_modelViewProj mat4` - concatenated model view projection matrix.
+	///      - `u_alphaRef float` - alpha reference value for alpha test.
+	/// </summary>
+	///
+	/// <param name="_name">Uniform name in shader.</param>
+	/// <param name="_freq">Uniform change frequency (See: `bgfx::UniformFreq`).</param>
+	/// <param name="_type">Type of uniform (See: `bgfx::UniformType`).</param>
+	/// <param name="_num">Number of elements in array.</param>
+	///
+	[DllImport(DllName, EntryPoint="bgfx_create_uniform_with_freq", CallingConvention = CallingConvention.Cdecl)]
+	public static extern unsafe UniformHandle create_uniform_with_freq([MarshalAs(UnmanagedType.LPStr)] string _name, UniformFreq _freq, UniformType _type, ushort _num);
+	
+	/// <summary>
 	/// Retrieve uniform info.
 	/// </summary>
 	///
@@ -3583,8 +3706,21 @@ public static partial class bgfx
 	public static extern unsafe void set_view_order(ushort _id, ushort _num, ushort* _order);
 	
 	/// <summary>
+	/// Set view shading rate.
+	/// @attention Availability depends on: `BGFX_CAPS_VARIABLE_RATE_SHADING`.
+	/// </summary>
+	///
+	/// <param name="_id">View id.</param>
+	/// <param name="_shadingRate">Shading rate.</param>
+	///
+	[DllImport(DllName, EntryPoint="bgfx_set_view_shading_rate", CallingConvention = CallingConvention.Cdecl)]
+	public static extern unsafe void set_view_shading_rate(ushort _id, ShadingRate _shadingRate);
+	
+	/// <summary>
 	/// Reset all view settings to default.
 	/// </summary>
+	///
+	/// <param name="_id">_id View id.</param>
 	///
 	[DllImport(DllName, EntryPoint="bgfx_reset_view", CallingConvention = CallingConvention.Cdecl)]
 	public static extern unsafe void reset_view(ushort _id);
@@ -3725,6 +3861,31 @@ public static partial class bgfx
 	///
 	[DllImport(DllName, EntryPoint="bgfx_encoder_set_uniform", CallingConvention = CallingConvention.Cdecl)]
 	public static extern unsafe void encoder_set_uniform(Encoder* _this, UniformHandle _handle, void* _value, ushort _num);
+	
+	/// <summary>
+	/// Set shader uniform parameter for view.
+	/// @attention Uniform must be created with `bgfx::UniformFreq::View` argument.
+	/// </summary>
+	///
+	/// <param name="_id">View id.</param>
+	/// <param name="_handle">Uniform.</param>
+	/// <param name="_value">Pointer to uniform data.</param>
+	/// <param name="_num">Number of elements. Passing `UINT16_MAX` will use the _num passed on uniform creation.</param>
+	///
+	[DllImport(DllName, EntryPoint="bgfx_set_view_uniform", CallingConvention = CallingConvention.Cdecl)]
+	public static extern unsafe void set_view_uniform(ushort _id, UniformHandle _handle, void* _value, ushort _num);
+	
+	/// <summary>
+	/// Set shader uniform parameter for frame.
+	/// @attention Uniform must be created with `bgfx::UniformFreq::View` argument.
+	/// </summary>
+	///
+	/// <param name="_handle">Uniform.</param>
+	/// <param name="_value">Pointer to uniform data.</param>
+	/// <param name="_num">Number of elements. Passing `UINT16_MAX` will use the _num passed on uniform creation.</param>
+	///
+	[DllImport(DllName, EntryPoint="bgfx_set_frame_uniform", CallingConvention = CallingConvention.Cdecl)]
+	public static extern unsafe void set_frame_uniform(UniformHandle _handle, void* _value, ushort _num);
 	
 	/// <summary>
 	/// Set index buffer for draw primitive.
@@ -3873,6 +4034,8 @@ public static partial class bgfx
 	/// with gl_InstanceID.
 	/// @attention Availability depends on: `BGFX_CAPS_VERTEX_ID`.
 	/// </summary>
+	///
+	/// <param name="_numInstances">Number of instances.</param>
 	///
 	[DllImport(DllName, EntryPoint="bgfx_encoder_set_instance_count", CallingConvention = CallingConvention.Cdecl)]
 	public static extern unsafe void encoder_set_instance_count(Encoder* _this, uint _numInstances);
@@ -4453,6 +4616,8 @@ public static partial class bgfx
 	/// with gl_InstanceID.
 	/// @attention Availability depends on: `BGFX_CAPS_VERTEX_ID`.
 	/// </summary>
+	///
+	/// <param name="_numInstances">Number of instances.</param>
 	///
 	[DllImport(DllName, EntryPoint="bgfx_set_instance_count", CallingConvention = CallingConvention.Cdecl)]
 	public static extern unsafe void set_instance_count(uint _numInstances);

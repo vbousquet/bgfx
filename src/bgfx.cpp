@@ -367,8 +367,7 @@ namespace bgfx
 		Memory* mem = const_cast<Memory*>(alloc(size) );
 
 		bx::StaticMemoryBlockWriter writer(mem->data, mem->size);
-		uint32_t magic = BGFX_CHUNK_MAGIC_TEX;
-		bx::write(&writer, magic, bx::ErrorAssert{});
+		bx::write(&writer, kChunkMagicTex, bx::ErrorAssert{});
 
 		TextureCreate tc;
 		tc.m_width     = _width;
@@ -895,7 +894,7 @@ namespace bgfx
 				if (isValid(m_program[ii]) )
 				{
 					destroy(m_program[ii]);
-					m_program[ii].idx = kInvalidHandle;
+					m_program[ii] = BGFX_INVALID_HANDLE;
 				}
 			}
 
@@ -1431,6 +1430,8 @@ namespace bgfx
 		}
 
 		bx::radixSort(m_blitKeys, (uint32_t*)&s_ctx->m_tempKeys, m_numBlitItems);
+
+		m_uniformCacheFrame.sort(viewRemap, s_ctx->m_tempKeys);
 	}
 
 	RenderFrame::Enum renderFrame(int32_t _msecs)
@@ -1469,7 +1470,7 @@ namespace bgfx
 		return RenderFrame::NoContext;
 	}
 
-	const uint32_t g_uniformTypeSize[UniformType::Count+1] =
+	const uint32_t g_uniformTypeSize[] =
 	{
 		sizeof(int32_t),
 		0,
@@ -1478,6 +1479,7 @@ namespace bgfx
 		4*4*sizeof(float),
 		1,
 	};
+	static_assert(UniformType::Count+1 == BX_COUNTOF(g_uniformTypeSize), "Must match UniformType::Enum!");
 
 	void UniformBuffer::writeUniform(UniformType::Enum _type, uint16_t _loc, const void* _value, uint16_t _num)
 	{
@@ -1526,21 +1528,22 @@ namespace bgfx
 		CAPS_FLAGS(BGFX_CAPS_INDEX32),
 		CAPS_FLAGS(BGFX_CAPS_INSTANCING),
 		CAPS_FLAGS(BGFX_CAPS_OCCLUSION_QUERY),
+		CAPS_FLAGS(BGFX_CAPS_PRIMITIVE_ID),
 		CAPS_FLAGS(BGFX_CAPS_RENDERER_MULTITHREADED),
 		CAPS_FLAGS(BGFX_CAPS_SWAP_CHAIN),
 		CAPS_FLAGS(BGFX_CAPS_TEXTURE_2D_ARRAY),
 		CAPS_FLAGS(BGFX_CAPS_TEXTURE_3D),
 		CAPS_FLAGS(BGFX_CAPS_TEXTURE_BLIT),
-		CAPS_FLAGS(BGFX_CAPS_TRANSPARENT_BACKBUFFER),
 		CAPS_FLAGS(BGFX_CAPS_TEXTURE_COMPARE_ALL),
 		CAPS_FLAGS(BGFX_CAPS_TEXTURE_COMPARE_LEQUAL),
 		CAPS_FLAGS(BGFX_CAPS_TEXTURE_CUBE_ARRAY),
 		CAPS_FLAGS(BGFX_CAPS_TEXTURE_DIRECT_ACCESS),
 		CAPS_FLAGS(BGFX_CAPS_TEXTURE_READ_BACK),
+		CAPS_FLAGS(BGFX_CAPS_TRANSPARENT_BACKBUFFER),
+		CAPS_FLAGS(BGFX_CAPS_VARIABLE_RATE_SHADING),
 		CAPS_FLAGS(BGFX_CAPS_VERTEX_ATTRIB_HALF),
 		CAPS_FLAGS(BGFX_CAPS_VERTEX_ATTRIB_UINT10),
 		CAPS_FLAGS(BGFX_CAPS_VERTEX_ID),
-		CAPS_FLAGS(BGFX_CAPS_PRIMITIVE_ID),
 		CAPS_FLAGS(BGFX_CAPS_VIEWPORT_LAYER_ARRAY),
 #undef CAPS_FLAGS
 	};
@@ -1610,6 +1613,18 @@ namespace bgfx
 		BX_TRACE("\t C Program  %016" PRIx64, kSortKeyComputeProgramMask);
 
 		BX_TRACE("");
+		BX_TRACE("Blit key masks:");
+		BX_TRACE("\tView   %08" PRIx32, BlitKey::kViewMask);
+		BX_TRACE("\tItem   %08" PRIx32, BlitKey::kItemMask);
+
+		BX_TRACE("");
+		BX_TRACE("Uniform cache key masks:");
+		BX_TRACE("\tView   %016" PRIx64, UniformCacheKey::kViewMask);
+		BX_TRACE("\tHandle %016" PRIx64, UniformCacheKey::kHandleMask);
+		BX_TRACE("\tOffset %016" PRIx64, UniformCacheKey::kOffsetMask);
+		BX_TRACE("\tSize   %016" PRIx64, UniformCacheKey::kSizeMask);
+
+		BX_TRACE("");
 		BX_TRACE("Capabilities (renderer %s, vendor 0x%04x, device 0x%04x):"
 				, s_ctx->m_renderCtx->getRendererName()
 				, g_caps.vendorId
@@ -1649,8 +1664,9 @@ namespace bgfx
 		LIMITS(maxOcclusionQueries);
 		LIMITS(maxEncoders);
 		LIMITS(minResourceCbSize);
-		LIMITS(transientVbSize);
-		LIMITS(transientIbSize);
+		LIMITS(maxTransientVbSize);
+		LIMITS(maxTransientIbSize);
+		LIMITS(minUniformBufferSize);
 #undef LIMITS
 
 		BX_TRACE("");
@@ -1710,12 +1726,15 @@ namespace bgfx
 		BX_UNUSED(reset, msaa);
 
 		BX_TRACE("Reset back-buffer swap chain:");
-		BX_TRACE("\t%dx%d, format: %s, numBackBuffers: %d, maxFrameLatency: %d"
+		BX_TRACE("\t%dx%d, formatColor: %s, formatDepthStencil: %s, numBackBuffers: %d, maxFrameLatency: %d"
 			, _resolution.width
 			, _resolution.height
-			, TextureFormat::Count == _resolution.format
+			, TextureFormat::Count == _resolution.formatColor
 				? "*default*"
-				: bimg::getName(bimg::TextureFormat::Enum(_resolution.format) )
+				: bimg::getName(bimg::TextureFormat::Enum(_resolution.formatColor) )
+			, TextureFormat::Count == _resolution.formatDepthStencil
+				? "*default*"
+				: bimg::getName(bimg::TextureFormat::Enum(_resolution.formatDepthStencil) )
 			, _resolution.numBackBuffers
 			, _resolution.maxFrameLatency
 			);
@@ -1774,7 +1793,12 @@ namespace bgfx
 
 	const char* getName(UniformHandle _handle)
 	{
-		return s_ctx->m_uniformRef[_handle.idx].m_name.getCPtr();
+		return getUniformRef(_handle).m_name.getCPtr();
+	}
+
+	const UniformRef& getUniformRef(UniformHandle _handle)
+	{
+		return s_ctx->m_uniformRef[_handle.idx];
 	}
 
 	const char* getName(ShaderHandle _handle)
@@ -2013,14 +2037,14 @@ namespace bgfx
 		m_textVideoMemBlitter.init(m_init.resolution.debugTextScale);
 		m_clearQuad.init();
 
-		m_submit->m_transientVb = createTransientVertexBuffer(_init.limits.transientVbSize);
-		m_submit->m_transientIb = createTransientIndexBuffer(_init.limits.transientIbSize);
+		m_submit->m_transientVb = createTransientVertexBuffer(_init.limits.maxTransientVbSize);
+		m_submit->m_transientIb = createTransientIndexBuffer(_init.limits.maxTransientIbSize);
 		frame();
 
 		if (BX_ENABLED(BGFX_CONFIG_MULTITHREADED) )
 		{
-			m_submit->m_transientVb = createTransientVertexBuffer(_init.limits.transientVbSize);
-			m_submit->m_transientIb = createTransientIndexBuffer(_init.limits.transientIbSize);
+			m_submit->m_transientVb = createTransientVertexBuffer(_init.limits.maxTransientVbSize);
+			m_submit->m_transientIb = createTransientIndexBuffer(_init.limits.maxTransientIbSize);
 			frame();
 		}
 
@@ -2236,7 +2260,9 @@ namespace bgfx
 
 		for (uint16_t ii = 0, num = _frame->m_freeUniform.getNumQueued(); ii < num; ++ii)
 		{
-			m_uniformHandle.free(_frame->m_freeUniform.get(ii).idx);
+			UniformHandle handle = _frame->m_freeUniform.get(ii);
+			m_uniformCache.invalidate(handle);
+			m_uniformHandle.free(handle.idx);
 		}
 	}
 
@@ -2323,6 +2349,10 @@ namespace bgfx
 		m_submit->m_perfStats.numViews = 0;
 
 		bx::memCopy(m_submit->m_viewRemap, m_viewRemap, sizeof(m_viewRemap) );
+
+		m_uniformCache.frame(m_submit->m_uniformCacheFrame);
+
+		static_assert(bx::isTriviallyCopyable<View>(), "Must be memcopyiable...");
 		bx::memCopy(m_submit->m_view, m_view, sizeof(m_view) );
 
 		if (m_colorPaletteDirty > 0)
@@ -2407,7 +2437,7 @@ namespace bgfx
 
 		id pool;
 	};
-#endif // BX_PLATFORM_OSX
+#endif // BX_PLATFORM_OSX || BX_PLATFORM_IOS || BX_PLATFORM_VISIONOS
 
 	RenderFrame::Enum Context::renderFrame(int32_t _msecs)
 	{
@@ -2415,7 +2445,7 @@ namespace bgfx
 
 #if BX_PLATFORM_OSX || BX_PLATFORM_IOS || BX_PLATFORM_VISIONOS
 		NSAutoreleasePoolScope pool;
-#endif // BX_PLATFORM_OSX
+#endif // BX_PLATFORM_OSX || BX_PLATFORM_IOS || BX_PLATFORM_VISIONOS
 
 		if (!m_flipAfterRender)
 		{
@@ -3193,7 +3223,7 @@ namespace bgfx
 					uint32_t magic;
 					bx::read(&reader, magic, &err);
 
-					if (BGFX_CHUNK_MAGIC_TEX == magic)
+					if (kChunkMagicTex == magic)
 					{
 						TextureCreate tc;
 						bx::read(&reader, tc, &err);
@@ -3494,7 +3524,8 @@ namespace bgfx
 	}
 
 	Resolution::Resolution()
-		: format(TextureFormat::RGBA8)
+		: formatColor(TextureFormat::RGBA8)
+		, formatDepthStencil(TextureFormat::D24S8)
 		, width(1280)
 		, height(720)
 		, reset(BGFX_RESET_NONE)
@@ -3507,8 +3538,9 @@ namespace bgfx
 	Init::Limits::Limits()
 		: maxEncoders(BGFX_CONFIG_DEFAULT_MAX_ENCODERS)
 		, minResourceCbSize(BGFX_CONFIG_MIN_RESOURCE_COMMAND_BUFFER_SIZE)
-		, transientVbSize(BGFX_CONFIG_TRANSIENT_VERTEX_BUFFER_SIZE)
-		, transientIbSize(BGFX_CONFIG_TRANSIENT_INDEX_BUFFER_SIZE)
+		, maxTransientVbSize(BGFX_CONFIG_MAX_TRANSIENT_VERTEX_BUFFER_SIZE)
+		, maxTransientIbSize(BGFX_CONFIG_MAX_TRANSIENT_INDEX_BUFFER_SIZE)
+		, minUniformBufferSize(BGFX_CONFIG_MIN_UNIFORM_BUFFER_SIZE)
 	{
 	}
 
@@ -3602,8 +3634,9 @@ namespace bgfx
 		g_caps.limits.maxFBAttachments        = 1;
 		g_caps.limits.maxEncoders             = init.limits.maxEncoders;
 		g_caps.limits.minResourceCbSize       = init.limits.minResourceCbSize;
-		g_caps.limits.transientVbSize         = init.limits.transientVbSize;
-		g_caps.limits.transientIbSize         = init.limits.transientIbSize;
+		g_caps.limits.maxTransientVbSize      = init.limits.maxTransientVbSize;
+		g_caps.limits.maxTransientIbSize      = init.limits.maxTransientIbSize;
+		g_caps.limits.minUniformBufferSize    = init.limits.minUniformBufferSize;
 
 		g_caps.vendorId = init.vendorId;
 		g_caps.deviceId = init.deviceId;
@@ -3760,6 +3793,7 @@ namespace bgfx
 	{
 		BGFX_CHECK_HANDLE("setUniform", s_ctx->m_uniformHandle, _handle);
 		const UniformRef& uniform = s_ctx->m_uniformRef[_handle.idx];
+		BX_ASSERT(uniform.m_freq == UniformFreq::Draw, "Setting uniform per draw call, but uniform is created with different bgfx::UniformFreq::Enum!");
 		BX_ASSERT(isValid(_handle) && 0 < uniform.m_refCount, "Setting invalid uniform (handle %3d)!", _handle.idx);
 		BX_ASSERT(_num == UINT16_MAX || uniform.m_num >= _num, "Truncated uniform update. %d (max: %d)", _num, uniform.m_num);
 		BGFX_ENCODER(setUniform(uniform.m_type, _handle, _value, UINT16_MAX != _num ? _num : uniform.m_num) );
@@ -4588,13 +4622,13 @@ namespace bgfx
 				++depth;
 
 				BGFX_ERROR_CHECK(
-					// if BGFX_TEXTURE_RT_MSAA_X2 or greater than BGFX_TEXTURE_RT_WRITE_ONLY is required
-					// if BGFX_TEXTURE_RT with no MSSA then WRITE_ONLY is not required.
+					// if BGFX_TEXTURE_RT_MSAA_X2 or greater than either BGFX_TEXTURE_RT_WRITE_ONLY or BGFX_TEXTURE_MSAA_SAMPLE is required
+					// if BGFX_TEXTURE_RT with no MSSA then this is not required.
 					(1 == ((tr.m_flags & BGFX_TEXTURE_RT_MSAA_MASK) >> BGFX_TEXTURE_RT_MSAA_SHIFT))
-					|| (0 != (tr.m_flags & BGFX_TEXTURE_RT_WRITE_ONLY))
+					|| (0 != (tr.m_flags & (BGFX_TEXTURE_RT_WRITE_ONLY | BGFX_TEXTURE_MSAA_SAMPLE)))
 					, _err
 					, BGFX_ERROR_FRAME_BUFFER_VALIDATION
-					, "Frame buffer depth MSAA texture cannot be resolved. It must be created with `BGFX_TEXTURE_RT_WRITE_ONLY` flag."
+					, "Frame buffer depth MSAA texture cannot be resolved. It must be created with either `BGFX_TEXTURE_RT_WRITE_ONLY` or `BGFX_TEXTURE_MSAA_SAMPLE` flag."
 					, "Attachment %d, texture flags 0x%016" PRIx64 "."
 					, ii
 					, tr.m_flags
@@ -4928,8 +4962,7 @@ namespace bgfx
 		const Memory* mem = alloc(size);
 
 		bx::StaticMemoryBlockWriter writer(mem->data, mem->size);
-		uint32_t magic = BGFX_CHUNK_MAGIC_TEX;
-		bx::write(&writer, magic, bx::ErrorAssert{});
+		bx::write(&writer, kChunkMagicTex, bx::ErrorAssert{});
 
 		TextureCreate tc;
 		tc.m_width     = _width;
@@ -4985,8 +5018,7 @@ namespace bgfx
 		const Memory* mem = alloc(size);
 
 		bx::StaticMemoryBlockWriter writer(mem->data, mem->size);
-		uint32_t magic = BGFX_CHUNK_MAGIC_TEX;
-		bx::write(&writer, magic, bx::ErrorAssert{});
+		bx::write(&writer, kChunkMagicTex, bx::ErrorAssert{});
 
 		TextureCreate tc;
 		tc.m_width     = _width;
@@ -5031,8 +5063,7 @@ namespace bgfx
 		const Memory* mem = alloc(size);
 
 		bx::StaticMemoryBlockWriter writer(mem->data, mem->size);
-		uint32_t magic = BGFX_CHUNK_MAGIC_TEX;
-		bx::write(&writer, magic, bx::ErrorAssert{});
+		bx::write(&writer, kChunkMagicTex, bx::ErrorAssert{});
 
 		TextureCreate tc;
 		tc.m_width     = _size;
@@ -5196,7 +5227,24 @@ namespace bgfx
 
 	UniformHandle createUniform(const char* _name, UniformType::Enum _type, uint16_t _num)
 	{
-		return s_ctx->createUniform(_name, _type, _num);
+		BX_ASSERT(UniformType::End != _type && UniformType::Count > _type
+			, "UniformType argument is not valid (_type: %d)!"
+			, _type
+			);
+		return s_ctx->createUniform(_name, UniformFreq::Draw, _type, _num);
+	}
+
+	UniformHandle createUniform(const char* _name, UniformFreq::Enum _freq, UniformType::Enum _type, uint16_t _num)
+	{
+		BX_ASSERT(UniformType::End != _type && UniformType::Count > _type
+			, "UniformType argument is not valid (_type: %d)!"
+			, _type
+			);
+		BX_ASSERT(UniformFreq::Count > _freq
+			, "UniformFreq argument is not valid (_freq: %d)!"
+			, _freq
+			);
+		return s_ctx->createUniform(_name, _freq, _type, _num);
 	}
 
 	void getUniformInfo(UniformHandle _handle, UniformInfo& _info)
@@ -5327,6 +5375,12 @@ namespace bgfx
 		s_ctx->setViewOrder(_id, _num, _order);
 	}
 
+	void setViewShadingRate(ViewId _id, ShadingRate::Enum _shadingRate)
+	{
+		BX_ASSERT(checkView(_id), "Invalid view id: %d", _id);
+		s_ctx->setViewShadingRate(_id, _shadingRate);
+	}
+
 	void resetView(ViewId _id)
 	{
 		BX_ASSERT(checkView(_id), "Invalid view id: %d", _id);
@@ -5396,6 +5450,19 @@ namespace bgfx
 	{
 		BGFX_CHECK_ENCODER0();
 		s_ctx->m_encoder0->setUniform(_handle, _value, _num);
+	}
+
+	void setViewUniform(ViewId _id, UniformHandle _handle, const void* _value, uint16_t _num)
+	{
+		BX_ASSERT(checkView(_id), "Invalid view id: %d", _id);
+		BGFX_CHECK_HANDLE("setUniform", s_ctx->m_uniformHandle, _handle);
+		s_ctx->setViewUniform(_id, _handle, _value, _num);
+	}
+
+	void setFrameUniform(UniformHandle _handle, const void* _value, uint16_t _num)
+	{
+		BGFX_CHECK_HANDLE("setUniform", s_ctx->m_uniformHandle, _handle);
+		s_ctx->setViewUniform(UINT16_MAX, _handle, _value, _num);
 	}
 
 	void setIndexBuffer(IndexBufferHandle _handle)

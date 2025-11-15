@@ -375,31 +375,31 @@ pub const DebugFlags_Text: DebugFlags                   = 0x00000008;
 pub const DebugFlags_Profiler: DebugFlags               = 0x00000010;
 
 pub const BufferFlags = u16;
-/// 1 8-bit value
+/// 1 x 8-bit value
 pub const BufferFlags_ComputeFormat8x1: BufferFlags       = 0x0001;
 
-/// 2 8-bit values
+/// 2 x 8-bit values
 pub const BufferFlags_ComputeFormat8x2: BufferFlags       = 0x0002;
 
-/// 4 8-bit values
+/// 4 x 8-bit values
 pub const BufferFlags_ComputeFormat8x4: BufferFlags       = 0x0003;
 
-/// 1 16-bit value
+/// 1 x 16-bit value
 pub const BufferFlags_ComputeFormat16x1: BufferFlags      = 0x0004;
 
-/// 2 16-bit values
+/// 2 x 16-bit values
 pub const BufferFlags_ComputeFormat16x2: BufferFlags      = 0x0005;
 
-/// 4 16-bit values
+/// 4 x 16-bit values
 pub const BufferFlags_ComputeFormat16x4: BufferFlags      = 0x0006;
 
-/// 1 32-bit value
+/// 1 x 32-bit value
 pub const BufferFlags_ComputeFormat32x1: BufferFlags      = 0x0007;
 
-/// 2 32-bit values
+/// 2 x 32-bit values
 pub const BufferFlags_ComputeFormat32x2: BufferFlags      = 0x0008;
 
-/// 4 32-bit values
+/// 4 x 32-bit values
 pub const BufferFlags_ComputeFormat32x4: BufferFlags      = 0x0009;
 pub const BufferFlags_ComputeFormatShift: BufferFlags     = 0;
 pub const BufferFlags_ComputeFormatMask: BufferFlags      = 0x000f;
@@ -705,17 +705,20 @@ pub const CapsFlags_Texture3D: CapsFlags              = 0x0000000002000000;
 /// Transparent back buffer supported.
 pub const CapsFlags_TransparentBackbuffer: CapsFlags  = 0x0000000004000000;
 
+/// Variable Rate Shading
+pub const CapsFlags_VariableRateShading: CapsFlags    = 0x0000000008000000;
+
 /// Vertex attribute half-float is supported.
-pub const CapsFlags_VertexAttribHalf: CapsFlags       = 0x0000000008000000;
+pub const CapsFlags_VertexAttribHalf: CapsFlags       = 0x0000000010000000;
 
 /// Vertex attribute 10_10_10_2 is supported.
-pub const CapsFlags_VertexAttribUint10: CapsFlags     = 0x0000000010000000;
+pub const CapsFlags_VertexAttribUint10: CapsFlags     = 0x0000000020000000;
 
 /// Rendering with VertexID only is supported.
-pub const CapsFlags_VertexId: CapsFlags               = 0x0000000020000000;
+pub const CapsFlags_VertexId: CapsFlags               = 0x0000000040000000;
 
 /// Viewport layer is available in vertex shader.
-pub const CapsFlags_ViewportLayerArray: CapsFlags     = 0x0000000040000000;
+pub const CapsFlags_ViewportLayerArray: CapsFlags     = 0x0000000080000000;
 
 /// All texture compare modes are supported.
 pub const CapsFlags_TextureCompareAll: CapsFlags      = 0x0000000000180000;
@@ -991,6 +994,18 @@ pub const TextureFormat = enum(c_int) {
     /// ETC2 RGB8A1
     ETC2A1,
 
+    /// EAC R11 UNORM
+    EACR11,
+
+    /// EAC R11 SNORM
+    EACR11S,
+
+    /// EAC RG11 UNORM
+    EACRG11,
+
+    /// EAC RG11 SNORM
+    EACRG11S,
+
     /// PVRTC1 RGB 2BPP
     PTC12,
 
@@ -1148,6 +1163,19 @@ pub const UniformType = enum(c_int) {
     Count
 };
 
+pub const UniformFreq = enum(c_int) {
+    /// Changing per draw call.
+    Draw,
+
+    /// Changing per view.
+    View,
+
+    /// Changing per frame.
+    Frame,
+
+    Count
+};
+
 pub const BackbufferRatio = enum(c_int) {
     /// Equal to backbuffer.
     Equal,
@@ -1254,6 +1282,31 @@ pub const ViewMode = enum(c_int) {
     Count
 };
 
+pub const ShadingRate = enum(c_int) {
+    /// 1x1
+    Rate1x1,
+
+    /// 1x2
+    Rate1x2,
+
+    /// 2x1
+    Rate2x1,
+
+    /// 2x2
+    Rate2x2,
+
+    /// 2x4
+    Rate2x4,
+
+    /// 4x2
+    Rate4x2,
+
+    /// 4x4
+    Rate4x4,
+
+    Count
+};
+
 pub const NativeWindowHandleType = enum(c_int) {
     /// Platform default handle type (X11 on Linux).
     Default,
@@ -1309,8 +1362,9 @@ pub const Caps = extern struct {
         maxOcclusionQueries: u32,
         maxEncoders: u32,
         minResourceCbSize: u32,
-        transientVbSize: u32,
-        transientIbSize: u32,
+        maxTransientVbSize: u32,
+        maxTansientIbSize: u32,
+        minUniformBufferSize: u32,
     };
 
         rendererType: RendererType,
@@ -1322,7 +1376,7 @@ pub const Caps = extern struct {
         numGPUs: u8,
         gpu: [4]GPU,
         limits: Limits,
-        formats: [96]u16,
+        formats: [100]u16,
     };
 
     pub const InternalData = extern struct {
@@ -1340,7 +1394,8 @@ pub const Caps = extern struct {
     };
 
     pub const Resolution = extern struct {
-        format: TextureFormat,
+        formatColor: TextureFormat,
+        formatDepthStencil: TextureFormat,
         width: u32,
         height: u32,
         reset: u32,
@@ -1353,8 +1408,9 @@ pub const Init = extern struct {
     pub const Limits = extern struct {
         maxEncoders: u16,
         minResourceCbSize: u32,
-        transientVbSize: u32,
-        transientIbSize: u32,
+        maxTransientVbSize: u32,
+        maxTransientIbSize: u32,
+        minUniformBufferSize: u32,
     };
 
         type: RendererType,
@@ -1718,6 +1774,7 @@ pub const Init = extern struct {
         /// Set number of instances for auto generated instances use in conjunction
         /// with gl_InstanceID.
         /// @attention Availability depends on: `BGFX_CAPS_VERTEX_ID`.
+        /// <param name="_numInstances">Number of instances.</param>
         pub inline fn setInstanceCount(self: ?*Encoder, _numInstances: u32) void {
             return bgfx_encoder_set_instance_count(self, _numInstances);
         }
@@ -2742,6 +2799,39 @@ pub inline fn createUniform(_name: [*c]const u8, _type: UniformType, _num: u16) 
 }
 extern fn bgfx_create_uniform(_name: [*c]const u8, _type: UniformType, _num: u16) UniformHandle;
 
+/// Create shader uniform parameter.
+/// @remarks
+///   1. Uniform names are unique. It's valid to call `bgfx::createUniform`
+///      multiple times with the same uniform name. The library will always
+///      return the same handle, but the handle reference count will be
+///      incremented. This means that the same number of `bgfx::destroyUniform`
+///      must be called to properly destroy the uniform.
+///   2. Predefined uniforms (declared in `bgfx_shader.sh`):
+///      - `u_viewRect vec4(x, y, width, height)` - view rectangle for current
+///        view, in pixels.
+///      - `u_viewTexel vec4(1.0/width, 1.0/height, undef, undef)` - inverse
+///        width and height
+///      - `u_view mat4` - view matrix
+///      - `u_invView mat4` - inverted view matrix
+///      - `u_proj mat4` - projection matrix
+///      - `u_invProj mat4` - inverted projection matrix
+///      - `u_viewProj mat4` - concatenated view projection matrix
+///      - `u_invViewProj mat4` - concatenated inverted view projection matrix
+///      - `u_model mat4[BGFX_CONFIG_MAX_BONES]` - array of model matrices.
+///      - `u_modelView mat4` - concatenated model view matrix, only first
+///        model matrix from array is used.
+///      - `u_invModelView mat4` - inverted concatenated model view matrix.
+///      - `u_modelViewProj mat4` - concatenated model view projection matrix.
+///      - `u_alphaRef float` - alpha reference value for alpha test.
+/// <param name="_name">Uniform name in shader.</param>
+/// <param name="_freq">Uniform change frequency (See: `bgfx::UniformFreq`).</param>
+/// <param name="_type">Type of uniform (See: `bgfx::UniformType`).</param>
+/// <param name="_num">Number of elements in array.</param>
+pub inline fn createUniformWithFreq(_name: [*c]const u8, _freq: UniformFreq, _type: UniformType, _num: u16) UniformHandle {
+    return bgfx_create_uniform_with_freq(_name, _freq, _type, _num);
+}
+extern fn bgfx_create_uniform_with_freq(_name: [*c]const u8, _freq: UniformFreq, _type: UniformType, _num: u16) UniformHandle;
+
 /// Retrieve uniform info.
 /// <param name="_handle">Handle to uniform object.</param>
 /// <param name="_info">Uniform info.</param>
@@ -2924,7 +3014,17 @@ pub inline fn setViewOrder(_id: ViewId, _num: u16, _order: [*c]const ViewId) voi
 }
 extern fn bgfx_set_view_order(_id: ViewId, _num: u16, _order: [*c]const ViewId) void;
 
+/// Set view shading rate.
+/// @attention Availability depends on: `BGFX_CAPS_VARIABLE_RATE_SHADING`.
+/// <param name="_id">View id.</param>
+/// <param name="_shadingRate">Shading rate.</param>
+pub inline fn setViewShadingRate(_id: ViewId, _shadingRate: ShadingRate) void {
+    return bgfx_set_view_shading_rate(_id, _shadingRate);
+}
+extern fn bgfx_set_view_shading_rate(_id: ViewId, _shadingRate: ShadingRate) void;
+
 /// Reset all view settings to default.
+/// <param name="_id">_id View id.</param>
 pub inline fn resetView(_id: ViewId) void {
     return bgfx_reset_view(_id);
 }
@@ -3013,6 +3113,27 @@ extern fn bgfx_encoder_alloc_transform(self: ?*Encoder, _transform: [*c]Transfor
 /// <param name="_num">Number of elements. Passing `UINT16_MAX` will use the _num passed on uniform creation.</param>
 extern fn bgfx_encoder_set_uniform(self: ?*Encoder, _handle: UniformHandle, _value: ?*const anyopaque, _num: u16) void;
 
+/// Set shader uniform parameter for view.
+/// @attention Uniform must be created with `bgfx::UniformFreq::View` argument.
+/// <param name="_id">View id.</param>
+/// <param name="_handle">Uniform.</param>
+/// <param name="_value">Pointer to uniform data.</param>
+/// <param name="_num">Number of elements. Passing `UINT16_MAX` will use the _num passed on uniform creation.</param>
+pub inline fn setViewUniform(_id: ViewId, _handle: UniformHandle, _value: ?*const anyopaque, _num: u16) void {
+    return bgfx_set_view_uniform(_id, _handle, _value, _num);
+}
+extern fn bgfx_set_view_uniform(_id: ViewId, _handle: UniformHandle, _value: ?*const anyopaque, _num: u16) void;
+
+/// Set shader uniform parameter for frame.
+/// @attention Uniform must be created with `bgfx::UniformFreq::View` argument.
+/// <param name="_handle">Uniform.</param>
+/// <param name="_value">Pointer to uniform data.</param>
+/// <param name="_num">Number of elements. Passing `UINT16_MAX` will use the _num passed on uniform creation.</param>
+pub inline fn setFrameUniform(_handle: UniformHandle, _value: ?*const anyopaque, _num: u16) void {
+    return bgfx_set_frame_uniform(_handle, _value, _num);
+}
+extern fn bgfx_set_frame_uniform(_handle: UniformHandle, _value: ?*const anyopaque, _num: u16) void;
+
 /// Set index buffer for draw primitive.
 /// <param name="_handle">Index buffer.</param>
 /// <param name="_firstIndex">First index to render.</param>
@@ -3097,6 +3218,7 @@ extern fn bgfx_encoder_set_instance_data_from_dynamic_vertex_buffer(self: ?*Enco
 /// Set number of instances for auto generated instances use in conjunction
 /// with gl_InstanceID.
 /// @attention Availability depends on: `BGFX_CAPS_VERTEX_ID`.
+/// <param name="_numInstances">Number of instances.</param>
 extern fn bgfx_encoder_set_instance_count(self: ?*Encoder, _numInstances: u32) void;
 
 /// Set texture stage for draw primitive.
@@ -3536,6 +3658,7 @@ extern fn bgfx_set_instance_data_from_dynamic_vertex_buffer(_handle: DynamicVert
 /// Set number of instances for auto generated instances use in conjunction
 /// with gl_InstanceID.
 /// @attention Availability depends on: `BGFX_CAPS_VERTEX_ID`.
+/// <param name="_numInstances">Number of instances.</param>
 pub inline fn setInstanceCount(_numInstances: u32) void {
     return bgfx_set_instance_count(_numInstances);
 }

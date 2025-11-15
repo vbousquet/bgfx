@@ -385,31 +385,31 @@ enum DebugFlags : const uint
 
 enum BufferFlags : const ushort
 {
-	// 1 8-bit value
+	// 1 x 8-bit value
 	COMPUTEFORMAT8X1       = 0x0001,
 
-	// 2 8-bit values
+	// 2 x 8-bit values
 	COMPUTEFORMAT8X2       = 0x0002,
 
-	// 4 8-bit values
+	// 4 x 8-bit values
 	COMPUTEFORMAT8X4       = 0x0003,
 
-	// 1 16-bit value
+	// 1 x 16-bit value
 	COMPUTEFORMAT16X1      = 0x0004,
 
-	// 2 16-bit values
+	// 2 x 16-bit values
 	COMPUTEFORMAT16X2      = 0x0005,
 
-	// 4 16-bit values
+	// 4 x 16-bit values
 	COMPUTEFORMAT16X4      = 0x0006,
 
-	// 1 32-bit value
+	// 1 x 32-bit value
 	COMPUTEFORMAT32X1      = 0x0007,
 
-	// 2 32-bit values
+	// 2 x 32-bit values
 	COMPUTEFORMAT32X2      = 0x0008,
 
-	// 4 32-bit values
+	// 4 x 32-bit values
 	COMPUTEFORMAT32X4      = 0x0009,
 	COMPUTEFORMATSHIFT     = 0,
 	COMPUTEFORMATMASK      = 0x000f,
@@ -723,17 +723,20 @@ enum CapsFlags : const ulong
 	// Transparent back buffer supported.
 	TRANSPARENTBACKBUFFER  = 0x0000000004000000,
 
+	// Variable Rate Shading
+	VARIABLERATESHADING    = 0x0000000008000000,
+
 	// Vertex attribute half-float is supported.
-	VERTEXATTRIBHALF       = 0x0000000008000000,
+	VERTEXATTRIBHALF       = 0x0000000010000000,
 
 	// Vertex attribute 10_10_10_2 is supported.
-	VERTEXATTRIBUINT10     = 0x0000000010000000,
+	VERTEXATTRIBUINT10     = 0x0000000020000000,
 
 	// Rendering with VertexID only is supported.
-	VERTEXID               = 0x0000000020000000,
+	VERTEXID               = 0x0000000040000000,
 
 	// Viewport layer is available in vertex shader.
-	VIEWPORTLAYERARRAY     = 0x0000000040000000,
+	VIEWPORTLAYERARRAY     = 0x0000000080000000,
 
 	// All texture compare modes are supported.
 	TEXTURECOMPAREALL      = 0x0000000000180000,
@@ -1024,6 +1027,18 @@ enum TextureFormat : uint
 	// ETC2 RGB8A1
 	ETC2A1,
 
+	// EAC R11 UNORM
+	EACR11,
+
+	// EAC R11 SNORM
+	EACR11S,
+
+	// EAC RG11 UNORM
+	EACRG11,
+
+	// EAC RG11 SNORM
+	EACRG11S,
+
 	// PVRTC1 RGB 2BPP
 	PTC12,
 
@@ -1182,6 +1197,20 @@ enum UniformType : uint
 	COUNT
 }
 
+enum UniformFreq : uint
+{
+	// Changing per draw call.
+	DRAW,
+
+	// Changing per view.
+	VIEW,
+
+	// Changing per frame.
+	FRAME,
+
+	COUNT
+}
+
 enum BackbufferRatio : uint
 {
 	// Equal to backbuffer.
@@ -1294,6 +1323,32 @@ enum ViewMode : uint
 	COUNT
 }
 
+enum ShadingRate : uint
+{
+	// 1x1
+	RATE1X1,
+
+	// 1x2
+	RATE1X2,
+
+	// 2x1
+	RATE2X1,
+
+	// 2x2
+	RATE2X2,
+
+	// 2x4
+	RATE2X4,
+
+	// 4x2
+	RATE4X2,
+
+	// 4x4
+	RATE4X4,
+
+	COUNT
+}
+
 enum NativeWindowHandleType : uint
 {
 	// Platform default handle type (X11 on Linux).
@@ -1379,9 +1434,11 @@ struct CapsLimits
 	// Minimum resource command buffer size.
 	uint minResourceCbSize;
 	// Maximum transient vertex buffer size.
-	uint transientVbSize;
+	uint maxTransientVbSize;
 	// Maximum transient index buffer size.
-	uint transientIbSize;
+	uint maxTansientIbSize;
+	// Mimimum uniform buffer size.
+	uint minUniformBufferSize;
 }
 
 // Renderer capabilities.
@@ -1429,7 +1486,7 @@ struct Caps
 	//   - `BGFX_CAPS_FORMAT_TEXTURE_MSAA` - Texture can be sampled as MSAA.
 	//   - `BGFX_CAPS_FORMAT_TEXTURE_MIP_AUTOGEN` - Texture format supports auto-generated
 	//     mips.
-	ushort[96] formats;
+	ushort[100] formats;
 }
 
 // Internal data.
@@ -1465,8 +1522,10 @@ struct PlatformData
 // Backbuffer resolution and reset parameters.
 struct Resolution
 {
-	// Backbuffer format.
-	TextureFormat format;
+	// Backbuffer color format.
+	TextureFormat formatColor;
+	// Backbuffer depth/stencil format.
+	TextureFormat formatDepthStencil;
 	// Backbuffer width.
 	uint width;
 	// Backbuffer height.
@@ -1489,9 +1548,11 @@ struct InitLimits
 	// Minimum resource command buffer size.
 	uint minResourceCbSize;
 	// Maximum transient vertex buffer size.
-	uint transientVbSize;
+	uint maxTransientVbSize;
 	// Maximum transient index buffer size.
-	uint transientIbSize;
+	uint maxTransientIbSize;
+	// Mimimum uniform buffer size.
+	uint minUniformBufferSize;
 }
 
 // Initialization parameters used by `bgfx::init`.
@@ -2430,6 +2491,36 @@ extern fn void destroy_frame_buffer(FrameBufferHandle _handle) @extern("bgfx_des
 // _num : `Number of elements in array.`
 extern fn UniformHandle create_uniform(ZString _name, UniformType _type, ushort _num) @extern("bgfx_create_uniform");
 
+// Create shader uniform parameter.
+// @remarks
+//   1. Uniform names are unique. It's valid to call `bgfx::createUniform`
+//      multiple times with the same uniform name. The library will always
+//      return the same handle, but the handle reference count will be
+//      incremented. This means that the same number of `bgfx::destroyUniform`
+//      must be called to properly destroy the uniform.
+//   2. Predefined uniforms (declared in `bgfx_shader.sh`):
+//      - `u_viewRect vec4(x, y, width, height)` - view rectangle for current
+//        view, in pixels.
+//      - `u_viewTexel vec4(1.0/width, 1.0/height, undef, undef)` - inverse
+//        width and height
+//      - `u_view mat4` - view matrix
+//      - `u_invView mat4` - inverted view matrix
+//      - `u_proj mat4` - projection matrix
+//      - `u_invProj mat4` - inverted projection matrix
+//      - `u_viewProj mat4` - concatenated view projection matrix
+//      - `u_invViewProj mat4` - concatenated inverted view projection matrix
+//      - `u_model mat4[BGFX_CONFIG_MAX_BONES]` - array of model matrices.
+//      - `u_modelView mat4` - concatenated model view matrix, only first
+//        model matrix from array is used.
+//      - `u_invModelView mat4` - inverted concatenated model view matrix.
+//      - `u_modelViewProj mat4` - concatenated model view projection matrix.
+//      - `u_alphaRef float` - alpha reference value for alpha test.
+// _name : `Uniform name in shader.`
+// _freq : `Uniform change frequency (See: `bgfx::UniformFreq`).`
+// _type : `Type of uniform (See: `bgfx::UniformType`).`
+// _num : `Number of elements in array.`
+extern fn UniformHandle create_uniform_with_freq(ZString _name, UniformFreq _freq, UniformType _type, ushort _num) @extern("bgfx_create_uniform_with_freq");
+
 // Retrieve uniform info.
 // _handle : `Handle to uniform object.`
 // _info : `Uniform info.`
@@ -2558,7 +2649,14 @@ extern fn void set_view_transform(ushort _id, void* _view, void* _proj) @extern(
 // _order : `View remap id table. Passing `NULL` will reset view ids to default state.`
 extern fn void set_view_order(ushort _id, ushort _num, ushort* _order) @extern("bgfx_set_view_order");
 
+// Set view shading rate.
+// @attention Availability depends on: `BGFX_CAPS_VARIABLE_RATE_SHADING`.
+// _id : `View id.`
+// _shadingRate : `Shading rate.`
+extern fn void set_view_shading_rate(ushort _id, ShadingRate _shadingRate) @extern("bgfx_set_view_shading_rate");
+
 // Reset all view settings to default.
+// _id : `_id View id.`
 extern fn void reset_view(ushort _id) @extern("bgfx_reset_view");
 
 // Begin submitting draw calls from thread.
@@ -2637,6 +2735,21 @@ extern fn uint encoder_alloc_transform(Encoder* _this, Transform* _transform, us
 // _value : `Pointer to uniform data.`
 // _num : `Number of elements. Passing `UINT16_MAX` will use the _num passed on uniform creation.`
 extern fn void encoder_set_uniform(Encoder* _this, UniformHandle _handle, void* _value, ushort _num) @extern("bgfx_encoder_set_uniform");
+
+// Set shader uniform parameter for view.
+// @attention Uniform must be created with `bgfx::UniformFreq::View` argument.
+// _id : `View id.`
+// _handle : `Uniform.`
+// _value : `Pointer to uniform data.`
+// _num : `Number of elements. Passing `UINT16_MAX` will use the _num passed on uniform creation.`
+extern fn void set_view_uniform(ushort _id, UniformHandle _handle, void* _value, ushort _num) @extern("bgfx_set_view_uniform");
+
+// Set shader uniform parameter for frame.
+// @attention Uniform must be created with `bgfx::UniformFreq::View` argument.
+// _handle : `Uniform.`
+// _value : `Pointer to uniform data.`
+// _num : `Number of elements. Passing `UINT16_MAX` will use the _num passed on uniform creation.`
+extern fn void set_frame_uniform(UniformHandle _handle, void* _value, ushort _num) @extern("bgfx_set_frame_uniform");
 
 // Set index buffer for draw primitive.
 // _handle : `Index buffer.`
@@ -2722,6 +2835,7 @@ extern fn void encoder_set_instance_data_from_dynamic_vertex_buffer(Encoder* _th
 // Set number of instances for auto generated instances use in conjunction
 // with gl_InstanceID.
 // @attention Availability depends on: `BGFX_CAPS_VERTEX_ID`.
+// _numInstances : `Number of instances.`
 extern fn void encoder_set_instance_count(Encoder* _this, uint _numInstances) @extern("bgfx_encoder_set_instance_count");
 
 // Set texture stage for draw primitive.
@@ -3074,6 +3188,7 @@ extern fn void set_instance_data_from_dynamic_vertex_buffer(DynamicVertexBufferH
 // Set number of instances for auto generated instances use in conjunction
 // with gl_InstanceID.
 // @attention Availability depends on: `BGFX_CAPS_VERTEX_ID`.
+// _numInstances : `Number of instances.`
 extern fn void set_instance_count(uint _numInstances) @extern("bgfx_set_instance_count");
 
 // Set texture stage for draw primitive.
