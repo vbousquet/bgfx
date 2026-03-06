@@ -4085,7 +4085,9 @@ VK_IMPORT_DEVICE
 							}
 
 							BX_ASSERT(
-								  texture.m_currentImageLayout == texture.m_sampledLayout
+								     texture.m_currentImageLayout == VK_IMAGE_LAYOUT_UNDEFINED
+							      || texture.m_currentImageLayout == VK_IMAGE_LAYOUT_PREINITIALIZED
+								  || texture.m_currentImageLayout == texture.m_sampledLayout
 								, "Mismatching image layout. Texture currently used as a framebuffer attachment?"
 								);
 
@@ -4149,7 +4151,9 @@ VK_IMPORT_DEVICE
 								;
 
 							BX_ASSERT(
-								  texture.m_currentImageLayout == texture.m_sampledLayout
+								   texture.m_currentImageLayout == VK_IMAGE_LAYOUT_UNDEFINED
+								|| texture.m_currentImageLayout == VK_IMAGE_LAYOUT_PREINITIALIZED
+								|| texture.m_currentImageLayout == texture.m_sampledLayout
 								, "Mismatching image layout. Texture currently used as a framebuffer attachment?"
 								);
 
