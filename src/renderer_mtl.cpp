@@ -1512,6 +1512,32 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 			m_commandBuffer = 0;
 		}
 
+		void flush() override
+		{
+			if (NULL == m_commandBuffer)
+			{
+				return;
+			}
+
+			for (uint32_t ii = 0, num = m_numWindows; ii < num; ++ii)
+			{
+				FrameBufferMtl& frameBuffer = ii == 0 ? m_mainFrameBuffer : m_frameBuffers[m_windows[ii].idx];
+				if (NULL != frameBuffer.m_swapChain
+				&&  frameBuffer.m_swapChain->m_drawableTexture)
+				{
+					MTL_RELEASE_I(frameBuffer.m_swapChain->m_drawableTexture);
+
+					if (NULL != frameBuffer.m_swapChain->m_drawable)
+					{
+						MTL_RELEASE_I(frameBuffer.m_swapChain->m_drawable);
+					}
+				}
+			}
+
+			m_cmd.kick(true, false);
+			m_commandBuffer = 0;
+		}
+
 		void updateResolution(const Resolution& _resolution)
 		{
 			SwapChainMtl* swapChain = m_mainFrameBuffer.m_swapChain;
