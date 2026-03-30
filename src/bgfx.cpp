@@ -2599,6 +2599,11 @@ namespace bgfx
 				BGFX_PROFILER_SCOPE("bgfx/flip", kColorSubmit);
 				flip();
 			}
+			else
+			{
+				BGFX_PROFILER_SCOPE("bgfx/flush", kColorSubmit);
+				m_renderCtx->flush();
+			}
 		}
 
 		if (apiSemWait(_msecs) )
@@ -2639,6 +2644,11 @@ namespace bgfx
 				{
 					BGFX_PROFILER_SCOPE("bgfx/flip", kColorSubmit);
 					flip();
+				}
+				else
+				{
+					BGFX_PROFILER_SCOPE("bgfx/flush", kColorSubmit);
+					m_renderCtx->flush();
 				}
 			}
 		}
