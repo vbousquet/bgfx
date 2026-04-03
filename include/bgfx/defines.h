@@ -487,6 +487,7 @@
 #define BGFX_CAPS_VERTEX_ID                       UINT64_C(0x0000000100000000) //!< Rendering with VertexID only is supported.
 #define BGFX_CAPS_VIDEO_DECODE                    UINT64_C(0x0000000200000000) //!< Hardware video decode is supported.
 #define BGFX_CAPS_VIEWPORT_LAYER_ARRAY            UINT64_C(0x0000000400000000) //!< Viewport layer is available in vertex shader.
+#define BGFX_CAPS_WAITABLE_SWAPCHAIN              UINT64_C(0x0000000800000000) //!< Swapchain support waiting for an empty slot.
 /// All texture compare modes are supported.
 #define BGFX_CAPS_TEXTURE_COMPARE_ALL (0 \
 	| BGFX_CAPS_TEXTURE_COMPARE_RESERVED \

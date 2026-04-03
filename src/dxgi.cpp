@@ -496,12 +496,12 @@ namespace bgfx
 			BX_TRACE("Allow tearing is %ssupported.", allowTearing ? "" : "not ");
 
 			scd.Flags |= allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
-			scd.Flags |= false
-				|| _scd.swapEffect == DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL
-				|| _scd.swapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD
-				? 0 // DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT
-				: 0
-				;
+#if BX_PLATFORM_WINDOWS
+			if ((_scd.windowed || !allowTearing) && (_scd.swapEffect == DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL || _scd.swapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD))
+			{
+				scd.Flags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+			}
+#endif // BX_PLATFORM_WINDOWS
 
 			m_tearingSupported = allowTearing;
 
@@ -560,9 +560,9 @@ namespace bgfx
 			}
 #	endif // BX_PLATFORM_WINRT
 		}
-#endif // BX_PLATFORM_WINDOWS
+#endif // BX_PLATFORM_LINUX || BX_PLATFORM_WINDOWS
 
-		if (SUCCEEDED(hr) )
+		if (SUCCEEDED(hr) && (scd.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT) == 0)
 		{
 			IDXGIDevice1* dxgiDevice1;
 			_device->QueryInterface(IID_IDXGIDevice1, (void**)&dxgiDevice1);
@@ -597,6 +597,9 @@ namespace bgfx
 				{
 					DX_RELEASE(*_swapChain, 1);
 					*_swapChain = reinterpret_cast<SwapChainI*>(swapChain);
+
+					if (scd.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT)
+						(*_swapChain)->SetMaximumFrameLatency(_scd.maxFrameLatency);
 
 					BX_TRACE("Color space support:");
 					for (uint32_t jj = 0; jj < BX_COUNTOF(s_colorSpace); ++jj)
@@ -728,12 +731,14 @@ namespace bgfx
 			BX_TRACE("Allow tearing is %ssupported.", allowTearing ? "" : "not ");
 
 			scdFlags |= allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+#if BX_PLATFORM_WINDOWS
 			scdFlags |= false
 				|| _scd.swapEffect == DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL
 				|| _scd.swapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD
-				? 0 // DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT
+				? DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT
 				: 0
 				;
+#endif
 
 			DX_RELEASE_I(factory5);
 		}

@@ -1565,6 +1565,11 @@ WGPU_IMPORT
 			return false;
 		}
 
+		bool waitForSwapchain() override
+		{
+			return false;
+		}
+
 		void flip() override
 		{
 			int64_t start = bx::getHPCounter();
