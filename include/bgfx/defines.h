@@ -504,6 +504,7 @@
 #define BGFX_CAPS_VERTEX_ATTRIB_UINT10            UINT64_C(0x0000000000200000) //!< Vertex attribute 10_10_10_2 is supported.
 #define BGFX_CAPS_VIDEO_DECODE                    UINT64_C(0x0000000000400000) //!< Hardware video decode is supported.
 #define BGFX_CAPS_VIEWPORT_LAYER_ARRAY            UINT64_C(0x0000000000800000) //!< Viewport layer is available in vertex shader.
+#define BGFX_CAPS_WAITABLE_SWAPCHAIN              UINT64_C(0x0000000001000000) //!< Swapchain support waiting for an empty slot.
 
 #define BGFX_CAPS_FORMAT_TEXTURE_NONE             UINT32_C(0x00000000) //!< Texture format is not supported.
 #define BGFX_CAPS_FORMAT_TEXTURE_2D               UINT32_C(0x00000001) //!< Texture format is supported.
