@@ -627,6 +627,8 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 				: 0
 				;
 
+			g_caps.supported |= BGFX_CAPS_WAITABLE_SWAPCHAIN;
+
 			// Reference(s):
 			// - Metal feature set tables
 			//   https://web.archive.org/web/20230330111145/https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf
@@ -1481,6 +1483,24 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 		bool isDeviceRemoved() override
 		{
 			return false;
+		}
+
+		bool waitForSwapchain() override
+		{
+			SwapChainMtl* swapChain = m_mainFrameBuffer.m_swapChain;
+			if (NULL == swapChain || NULL == swapChain->m_metalLayer)
+			{
+				return false;
+			}
+
+			if (NULL != swapChain->m_drawableTexture)
+			{
+				return true;
+			}
+
+			return m_cmd.m_swapchainSemaphore.wait(1000);
+
+			return true;
 		}
 
 		void flip() override
@@ -3965,6 +3985,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 	{
 		m_commandQueue = _device->newCommandQueue();
 		m_framesSemaphore.post(BGFX_CONFIG_MAX_FRAME_LATENCY);
+		m_swapchainSemaphore.post();
 	}
 
 	void CommandQueueMtl::shutdown()
@@ -4011,7 +4032,10 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 			{
 				m_releaseWriteIndex = (m_releaseWriteIndex + 1) % BGFX_CONFIG_MAX_FRAME_LATENCY;
 				m_activeCommandBuffer->addCompletedHandler(
-					MTL::HandlerFunction([this](MTL::CommandBuffer*) { commandBufferFinishedCallback(this); })
+					MTL::HandlerFunction([this](MTL::CommandBuffer*) {
+						commandBufferFinishedCallback(this);
+						m_swapchainSemaphore.post();
+					})
 					);
 			}
 

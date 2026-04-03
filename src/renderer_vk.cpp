@@ -380,6 +380,8 @@ VK_IMPORT_DEVICE
 			EXT_line_rasterization,
 			EXT_memory_budget,
 			EXT_shader_viewport_index_layer,
+			KHR_present_id,
+			KHR_present_wait,
 			KHR_draw_indirect_count,
 			KHR_fragment_shading_rate,
 			KHR_get_physical_device_properties2,
@@ -420,6 +422,8 @@ VK_IMPORT_DEVICE
 		{ "VK_EXT_line_rasterization",              1, false, false, true,                                                          Layer::Count },
 		{ "VK_EXT_memory_budget",                   1, false, false, true,                                                          Layer::Count },
 		{ "VK_EXT_shader_viewport_index_layer",     1, false, false, true,                                                          Layer::Count },
+		{ "VK_KHR_present_id",                      1, false, false, true,                                                          Layer::Count },
+		{ "VK_KHR_present_wait",                    1, false, false, true,                                                          Layer::Count },
 		{ "VK_KHR_draw_indirect_count",             1, false, false, true,                                                          Layer::Count },
 		{ "VK_KHR_fragment_shading_rate",           1, false, false, true,                                                          Layer::Count },
 		{ "VK_KHR_get_physical_device_properties2", 1, false, false, true,                                                          Layer::Count },
@@ -1755,6 +1759,7 @@ VK_IMPORT_INSTANCE
 					| (s_extension[Extension::EXT_shader_viewport_index_layer].m_supported ? BGFX_CAPS_VIEWPORT_LAYER_ARRAY : 0)
 					| (s_extension[Extension::KHR_draw_indirect_count        ].m_supported && indirectDrawSupport ? BGFX_CAPS_DRAW_INDIRECT_COUNT : 0)
 					| (s_extension[Extension::KHR_fragment_shading_rate      ].m_supported ? BGFX_CAPS_VARIABLE_RATE_SHADING : 0)
+					| (s_extension[Extension::KHR_present_id].m_supported && s_extension[Extension::KHR_present_wait].m_supported ? BGFX_CAPS_WAITABLE_SWAPCHAIN : 0)
 					;
 
 				m_variableRateShadingSupported = true
@@ -2388,6 +2393,16 @@ VK_IMPORT_DEVICE
 		bool isDeviceRemoved() override
 		{
 			return false;
+		}
+
+		bool waitForSwapchain() override
+		{
+			if (m_numWindows == 0)
+			{
+				return false;
+			}
+
+			return m_backBuffer.m_swapChain.waitForSwapchain();
 		}
 
 		void flip() override
@@ -7302,6 +7317,11 @@ retry:
 			m_lastImageRenderedSemaphore = VK_NULL_HANDLE;
 			m_lastImageAcquiredSemaphore = VK_NULL_HANDLE;
 
+			m_presentWaitSupported =
+				s_extension[Extension::KHR_present_id].m_supported &&
+				s_extension[Extension::KHR_present_wait].m_supported &&
+				vkWaitForPresentKHR != nullptr;
+
 			result = createSwapChain();
 
 			if (VK_SUCCESS != result)
@@ -8233,6 +8253,22 @@ retry:
 		return true;
 	}
 
+	bool SwapChainVK::waitForSwapchain()
+	{
+		if (VK_NULL_HANDLE == m_swapChain || !m_presentWaitSupported || m_lastPresentId == 0)
+		{
+			return false;
+		}
+
+		VkResult result = vkWaitForPresentKHR(
+			s_renderVK->m_device,
+			m_swapChain,
+			m_lastPresentId,
+			1000000000ULL);
+
+		return result == VK_SUCCESS;
+	}
+
 	void SwapChainVK::present()
 	{
 		BGFX_PROFILER_SCOPE("SwapChainVk::present", kColorFrame);
@@ -8249,6 +8285,18 @@ retry:
 			pi.pSwapchains        = &m_swapChain;
 			pi.pImageIndices      = &m_backBufferColorIdx;
 			pi.pResults           = NULL;
+
+			VkPresentIdKHR presentIdInfo;
+			if (m_presentWaitSupported)
+			{
+				m_lastPresentId++;
+				presentIdInfo.sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR;
+				presentIdInfo.pNext = NULL;
+				presentIdInfo.swapchainCount = 1;
+				presentIdInfo.pPresentIds = &m_lastPresentId;
+				pi.pNext = &presentIdInfo;
+			}
+
 			VkResult result;
 			{
 				BGFX_PROFILER_SCOPE("vkQueuePresentHKR", kColorFrame);

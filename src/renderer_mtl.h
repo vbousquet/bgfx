@@ -624,8 +624,10 @@ namespace bgfx { namespace mtl
 		void release(T* _ptr) { release( (NS::Object*)(const void*)_ptr ); }
 
 		void consume();
+		bool waitForSwapchain();
 
 		bx::Semaphore m_framesSemaphore;
+		bx::Semaphore m_swapchainSemaphore;
 
 		MTL::CommandQueue*  m_commandQueue;
 		MTL::CommandBuffer* m_activeCommandBuffer;
