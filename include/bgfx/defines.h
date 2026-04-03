@@ -479,6 +479,7 @@
 #define BGFX_CAPS_VERTEX_ATTRIB_UINT10            UINT64_C(0x0000000080000000) //!< Vertex attribute 10_10_10_2 is supported.
 #define BGFX_CAPS_VERTEX_ID                       UINT64_C(0x0000000100000000) //!< Rendering with VertexID only is supported.
 #define BGFX_CAPS_VIEWPORT_LAYER_ARRAY            UINT64_C(0x0000000200000000) //!< Viewport layer is available in vertex shader.
+#define BGFX_CAPS_WAITABLE_SWAPCHAIN              UINT64_C(0x0000000400000000) //!< Swapchain support waiting for an empty slot.
 /// All texture compare modes are supported.
 #define BGFX_CAPS_TEXTURE_COMPARE_ALL (0 \
 	| BGFX_CAPS_TEXTURE_COMPARE_RESERVED \

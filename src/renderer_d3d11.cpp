@@ -696,6 +696,7 @@ namespace bgfx { namespace d3d11
 			, m_ags(NULL)
 			, m_featureLevel(D3D_FEATURE_LEVEL(0) )
 			, m_swapChain(NULL)
+			, m_swapChainWaitable(NULL)
 			, m_msaaRt(NULL)
 			, m_needPresent(false)
 			, m_lost(false)
@@ -1157,6 +1158,9 @@ namespace bgfx { namespace d3d11
 					}
 
 #if BX_PLATFORM_WINDOWS
+					if (m_swapChain && (m_dxgi.m_tearingSupported || m_scd.windowed))
+						m_swapChainWaitable = m_swapChain->GetFrameLatencyWaitableObject();
+
 					DX_CHECK(m_dxgi.m_factory->MakeWindowAssociation( (HWND)g_platformData.nwh, 0
 						| DXGI_MWA_NO_WINDOW_CHANGES
 						| DXGI_MWA_NO_ALT_ENTER
@@ -1381,6 +1385,14 @@ namespace bgfx { namespace d3d11
 						g_caps.supported |= BGFX_CAPS_VIEWPORT_LAYER_ARRAY;
 					}
 				}
+
+				// Waitable swapchain needs DXGI 1.3 (IDXGISwapChain2 interface) and is only supported on Windows (not available on UWP) except in FSE/FSO fullscreen mode.
+#if BX_PLATFORM_WINDOWS
+				if (m_dxgi.m_tearingSupported || m_scd.windowed)
+				{
+					g_caps.supported |= BGFX_CAPS_WAITABLE_SWAPCHAIN;
+				}
+#endif
 
 				for (uint32_t ii = 0; ii < TextureFormat::Count; ++ii)
 				{
@@ -1686,6 +1698,13 @@ namespace bgfx { namespace d3d11
 
 				m_dxgi.removeSwapChain(m_scd);
 
+#if BX_PLATFORM_WINDOWS
+				if (m_swapChainWaitable)
+				{
+					CloseHandle(m_swapChainWaitable);
+					m_swapChainWaitable = NULL;
+				}
+#endif
 				DX_RELEASE(m_swapChain, 0);
 				DX_RELEASE(m_deviceCtx, 0);
 				DX_RELEASE(m_device, 0);
@@ -1777,6 +1796,13 @@ namespace bgfx { namespace d3d11
 
 			m_dxgi.removeSwapChain(m_scd);
 
+#if BX_PLATFORM_WINDOWS
+			if (m_swapChainWaitable)
+			{
+				CloseHandle(m_swapChainWaitable);
+				m_swapChainWaitable = NULL;
+			}
+#endif
 			DX_RELEASE(m_swapChain, 0);
 			DX_RELEASE(m_deviceCtx, 0);
 			DX_RELEASE(m_device, 0);
@@ -2376,6 +2402,17 @@ namespace bgfx { namespace d3d11
 			return m_lost;
 		}
 
+		bool waitForSwapchain() override
+		{
+#if BX_PLATFORM_WINDOWS
+			if (m_swapChainWaitable)
+			{
+				return WaitForSingleObjectEx(m_swapChainWaitable, 1000, TRUE) == WAIT_OBJECT_0;
+			}
+#endif // BX_PLATFORM_WINDOWS
+			return false;
+		}
+
 		void flip() override
 		{
 			if (!m_lost)
@@ -2593,12 +2630,24 @@ namespace bgfx { namespace d3d11
 
 						m_dxgi.removeSwapChain(m_scd);
 
+#if BX_PLATFORM_WINDOWS
+						if (m_swapChainWaitable)
+						{
+							CloseHandle(m_swapChainWaitable);
+							m_swapChainWaitable = NULL;
+						}
+#endif
 						DX_RELEASE(m_swapChain, 0);
 						HRESULT hr = m_dxgi.createSwapChain(m_device
 							, m_scd
 							, &m_swapChain
 							);
 						BGFX_FATAL(SUCCEEDED(hr), bgfx::Fatal::UnableToInitialize, "Failed to create swap chain.");
+
+#if BX_PLATFORM_WINDOWS
+						if (m_swapChain && (m_dxgi.m_tearingSupported || m_scd.windowed))
+							m_swapChainWaitable = m_swapChain->GetFrameLatencyWaitableObject();
+#endif
 					}
 
 					if (1 < m_scd.sampleDesc.Count)
@@ -3659,6 +3708,7 @@ namespace bgfx { namespace d3d11
 		D3D_FEATURE_LEVEL m_featureLevel;
 
 		Dxgi::SwapChainI* m_swapChain;
+		HANDLE m_swapChainWaitable;
 		ID3D11Texture2D*  m_msaaRt;
 
 		bool m_needPresent;

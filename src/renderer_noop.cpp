@@ -96,6 +96,11 @@ namespace bgfx { namespace noop
 			return false;
 		}
 
+		bool waitForSwapchain() override
+		{
+			return false;
+		}
+
 		void flip() override
 		{
 		}

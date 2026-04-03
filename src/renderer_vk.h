@@ -113,6 +113,8 @@
 			/* VK_EXT_debug_report */                                                  \
 			VK_IMPORT_INSTANCE_FUNC(true,  vkCreateDebugReportCallbackEXT);            \
 			VK_IMPORT_INSTANCE_FUNC(true,  vkDestroyDebugReportCallbackEXT);           \
+			/* VK_KHR_present_wait */                                                  \
+			VK_IMPORT_INSTANCE_FUNC(true, vkWaitForPresentKHR);                        \
 			/* VK_KHR_fragment_shading_rate */                                         \
 			VK_IMPORT_INSTANCE_FUNC(true, vkGetPhysicalDeviceFragmentShadingRatesKHR); \
 			VK_IMPORT_INSTANCE_PLATFORM
@@ -831,6 +833,7 @@ VK_DESTROY_FUNC(DescriptorSet);
 		TextureFormat::Enum findSurfaceFormat(TextureFormat::Enum _format, VkColorSpaceKHR _colorSpace, bool _srgb);
 
 		bool acquire(VkCommandBuffer _commandBuffer);
+		bool waitForSwapchain();
 		void present();
 
 		void transitionImage(VkCommandBuffer _commandBuffer);
@@ -862,6 +865,8 @@ VK_DESTROY_FUNC(DescriptorSet);
 
 		VkSemaphore m_lastImageRenderedSemaphore;
 		VkSemaphore m_lastImageAcquiredSemaphore;
+
+		uint64_t m_lastPresentId = 0;
 
 		bool m_needPresent;
 		bool m_needToRecreateSwapchain;

@@ -2115,6 +2115,17 @@ namespace bgfx
 		, TextureFormat::Enum _format = TextureFormat::Count
 		);
 
+	/// Block until a swapchain buffer is available.
+	///
+	/// @returns true if waiting succeeded and swapchain is guaranteed to have at least one empty slot
+	///
+	/// @remarks
+	///   Library must be initialized.
+	///
+	/// @attention C99's equivalent binding is `bgfx_wait_for_swapchain`.
+	///
+	bool waitForSwapchain();
+
 	/// Advance to next frame. This is the main frame-advancement call on the
 	/// API thread (the thread from which `bgfx::init` was called).
 	///
