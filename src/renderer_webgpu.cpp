@@ -1629,6 +1629,11 @@ WGPU_IMPORT
 			return 0 != m_lost;
 		}
 
+		bool waitForSwapchain() override
+		{
+			return false;
+		}
+
 		void flip() override
 		{
 			if (0 != m_lost)

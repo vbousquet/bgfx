@@ -797,6 +797,7 @@ namespace bgfx { namespace d3d11
 			, m_agsDll(NULL)
 			, m_ags(NULL)
 			, m_featureLevel(D3D_FEATURE_LEVEL(0) )
+			, m_swapChainWaitable(NULL)
 			, m_lost(false)
 			, m_numWindows(0)
 			, m_device(NULL)
@@ -1182,11 +1183,17 @@ namespace bgfx { namespace d3d11
 					m_scd.flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
 
 					m_scd.maxFrameLatency = bx::min<uint8_t>(_init.swapChain.maxFrameLatency, BGFX_CONFIG_MAX_FRAME_LATENCY);
-					m_scd.waitable        = false;
 					m_scd.nwh             = _init.swapChain.nwh;
 					m_scd.ndt             = _init.swapChain.ndt;
 					m_scd.windowed        = true;
 					m_scd.hdr10           = 0 != (_init.swapChain.flags & BGFX_SWAP_CHAIN_HDR10);
+
+					m_scd.waitable = true
+						&& m_scd.nwh != NULL
+						&& m_scd.windowed
+						&& (DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL == m_scd.swapEffect
+							  || DXGI_SWAP_EFFECT_FLIP_DISCARD == m_scd.swapEffect)
+						;
 
 					if (NULL != m_scd.nwh)
 					{
@@ -1210,6 +1217,7 @@ namespace bgfx { namespace d3d11
 
 							m_scd.bufferCount = m_swapBufferCount;
 							m_scd.swapEffect  = m_swapEffect;
+							m_scd.waitable    = false;
 							// DXGI_SCALING_NONE is only valid for flip-model swap chains.
 							m_scd.scaling     = DXGI_SCALING_STRETCH;
 							hr = m_dxgi.createSwapChain(m_device
@@ -1236,6 +1244,9 @@ namespace bgfx { namespace d3d11
 					}
 
 #if BX_PLATFORM_WINDOWS
+					if (mainFrameBuffer().m_swapChain && m_scd.waitable)
+						m_swapChainWaitable = mainFrameBuffer().m_swapChain->GetFrameLatencyWaitableObject();
+
 					DX_CHECK(m_dxgi.m_factory->MakeWindowAssociation( (HWND)_init.swapChain.nwh, 0
 						| DXGI_MWA_NO_WINDOW_CHANGES
 						| DXGI_MWA_NO_ALT_ENTER
@@ -1366,6 +1377,14 @@ namespace bgfx { namespace d3d11
 						g_caps.supported |= BGFX_CAPS_VIEWPORT_LAYER_ARRAY;
 					}
 				}
+
+				// Waitable swapchain needs DXGI 1.3 (IDXGISwapChain2 interface) and is only supported on Windows (not available on UWP) except in FSE/FSO fullscreen mode.
+#if BX_PLATFORM_WINDOWS
+				if (m_scd.waitable)
+				{
+					g_caps.supported |= BGFX_CAPS_WAITABLE_SWAPCHAIN;
+				}
+#endif
 
 				for (uint32_t ii = 0; ii < TextureFormat::Count; ++ii)
 				{
@@ -1701,6 +1720,13 @@ namespace bgfx { namespace d3d11
 
 				m_dxgi.removeSwapChain(m_scd);
 
+#if BX_PLATFORM_WINDOWS
+				if (m_swapChainWaitable)
+				{
+					CloseHandle(m_swapChainWaitable);
+					m_swapChainWaitable = NULL;
+				}
+#endif
 				DX_RELEASE(mainFrameBuffer().m_swapChain, 0);
 				DX_RELEASE(m_deviceCtx, 0);
 				DX_RELEASE(m_device, 0);
@@ -1784,6 +1810,13 @@ namespace bgfx { namespace d3d11
 
 			m_dxgi.removeSwapChain(m_scd);
 
+#if BX_PLATFORM_WINDOWS
+			if (m_swapChainWaitable)
+			{
+				CloseHandle(m_swapChainWaitable);
+				m_swapChainWaitable = NULL;
+			}
+#endif
 			DX_RELEASE(mainFrameBuffer().m_swapChain, 0);
 			DX_RELEASE(m_deviceCtx, 0);
 			DX_RELEASE(m_device, 0);
@@ -2436,6 +2469,17 @@ namespace bgfx { namespace d3d11
 			return lost;
 		}
 
+		bool waitForSwapchain() override
+		{
+#if BX_PLATFORM_WINDOWS
+			if (m_swapChainWaitable)
+			{
+				return WaitForSingleObjectEx(m_swapChainWaitable, 1000, TRUE) == WAIT_OBJECT_0;
+			}
+#endif // BX_PLATFORM_WINDOWS
+			return false;
+		}
+
 		void flip() override
 		{
 			if (!m_lost)
@@ -2648,6 +2692,13 @@ namespace bgfx { namespace d3d11
 
 						m_dxgi.removeSwapChain(m_scd);
 
+#if BX_PLATFORM_WINDOWS
+						if (m_swapChainWaitable)
+						{
+							CloseHandle(m_swapChainWaitable);
+							m_swapChainWaitable = NULL;
+						}
+#endif
 						DX_RELEASE(mainFrameBuffer().m_swapChain, 0);
 
 						if (newWindow)
@@ -2673,6 +2724,11 @@ namespace bgfx { namespace d3d11
 								) );
 						}
 #endif // BX_PLATFORM_WINDOWS
+
+#if BX_PLATFORM_WINDOWS
+						if (mainFrameBuffer().m_swapChain && m_scd.waitable)
+							m_swapChainWaitable = mainFrameBuffer().m_swapChain->GetFrameLatencyWaitableObject();
+#endif
 					}
 				}
 
@@ -4167,6 +4223,8 @@ namespace bgfx { namespace d3d11
 		NvApi m_nvapi;
 
 		D3D_FEATURE_LEVEL m_featureLevel;
+
+		HANDLE m_swapChainWaitable;
 
 		bool m_lost;
 		uint16_t m_numWindows;
@@ -6026,10 +6084,7 @@ namespace bgfx { namespace d3d11
 		scd.ndt        = m_desc.ndt;
 		scd.sampleDesc = s_msaa[(m_desc.flags&BGFX_SWAP_CHAIN_MSAA_MASK)>>BGFX_SWAP_CHAIN_MSAA_SHIFT];
 		scd.hdr10      = 0 != (m_desc.flags & BGFX_SWAP_CHAIN_HDR10);
-		scd.waitable   = false
-			|| DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL == scd.swapEffect
-			|| DXGI_SWAP_EFFECT_FLIP_DISCARD    == scd.swapEffect
-			;
+		scd.waitable   = false;
 
 		return scd;
 	}
