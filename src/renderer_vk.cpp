@@ -2269,7 +2269,7 @@ VK_IMPORT_DEVICE
 			{
 				m_maxFrameLatency = _init.swapChain.maxFrameLatency == 0
 					? BGFX_CONFIG_MAX_FRAME_LATENCY
-					: _init.swapChain.maxFrameLatency
+					: _init.swapChain.maxFrameLatency + 1
 					;
 
 				result = m_cmd.init(m_globalQueueFamily, m_globalQueue);
