@@ -376,6 +376,8 @@ VK_IMPORT_DEVICE
 			EXT_line_rasterization,
 			EXT_memory_budget,
 			EXT_shader_viewport_index_layer,
+			KHR_present_id,
+			KHR_present_wait,
 			EXT_surface_maintenance1,
 			EXT_swapchain_maintenance1,
 			KHR_draw_indirect_count,
@@ -424,6 +426,8 @@ VK_IMPORT_DEVICE
 		{ "VK_EXT_line_rasterization",              1, false, false, true,                                                          Layer::Count },
 		{ "VK_EXT_memory_budget",                   1, false, false, true,                                                          Layer::Count },
 		{ "VK_EXT_shader_viewport_index_layer",     1, false, false, true,                                                          Layer::Count },
+		{ "VK_KHR_present_id",                      1, false, false, true,                                                          Layer::Count },
+		{ "VK_KHR_present_wait",                    1, false, false, true,                                                          Layer::Count },
 		{ "VK_EXT_surface_maintenance1",            1, false, false, true,                                                          Layer::Count },
 		{ "VK_EXT_swapchain_maintenance1",          1, false, false, true,                                                          Layer::Count },
 		{ "VK_KHR_draw_indirect_count",             1, false, false, true,                                                          Layer::Count },
@@ -1336,6 +1340,8 @@ VK_IMPORT_DEVICE
 			VkPhysicalDeviceLineRasterizationFeaturesEXT lineRasterizationFeatures = {};
 			VkPhysicalDeviceCustomBorderColorFeaturesEXT customBorderColorFeatures = {};
 			VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragmentShadingRate = {};
+			VkPhysicalDevicePresentIdFeaturesKHR presentIdFeatures = {};
+			VkPhysicalDevicePresentWaitFeaturesKHR presentWaitFeatures = {};
 			VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT swapchainMaintenance1Features = {};
 
 			m_fbh = BGFX_INVALID_HANDLE;
@@ -1779,6 +1785,22 @@ VK_IMPORT_INSTANCE
 						customBorderColorFeatures.pNext = NULL;
 					}
 
+					if (s_extension[Extension::KHR_present_id].m_supported)
+					{
+						next->pNext = (VkBaseOutStructure*)&presentIdFeatures;
+						next = (VkBaseOutStructure*)&presentIdFeatures;
+						presentIdFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR;
+						presentIdFeatures.pNext = NULL;
+					}
+
+					if (s_extension[Extension::KHR_present_wait].m_supported)
+					{
+						next->pNext = (VkBaseOutStructure*)&presentWaitFeatures;
+						next = (VkBaseOutStructure*)&presentWaitFeatures;
+						presentWaitFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR;
+						presentWaitFeatures.pNext = NULL;
+					}
+
 					if (s_extension[Extension::EXT_swapchain_maintenance1].m_supported)
 					{
 						next->pNext = (VkBaseOutStructure*)&swapchainMaintenance1Features;
@@ -1918,6 +1940,13 @@ VK_IMPORT_INSTANCE
 
 				m_timerQuerySupport = m_deviceProperties.limits.timestampComputeAndGraphics;
 
+				m_presentWaitSupported = true
+					&& s_extension[Extension::KHR_present_id].m_supported
+					&& presentIdFeatures.presentId
+					&& s_extension[Extension::KHR_present_wait].m_supported
+					&& presentWaitFeatures.presentWait
+					;
+
 				m_swapchainMaintenance1Supported = true
 					&& s_extension[Extension::EXT_swapchain_maintenance1].m_supported
 					&& swapchainMaintenance1Features.swapchainMaintenance1
@@ -1947,6 +1976,7 @@ VK_IMPORT_INSTANCE
 					| (s_extension[Extension::EXT_shader_viewport_index_layer].m_supported ? BGFX_CAPS_VIEWPORT_LAYER_ARRAY : 0)
 					| (s_extension[Extension::KHR_draw_indirect_count        ].m_supported && indirectDrawSupport ? BGFX_CAPS_DRAW_INDIRECT_COUNT : 0)
 					| (s_extension[Extension::KHR_fragment_shading_rate      ].m_supported ? BGFX_CAPS_VARIABLE_RATE_SHADING : 0)
+					| (s_extension[Extension::KHR_present_id].m_supported && s_extension[Extension::KHR_present_wait].m_supported ? BGFX_CAPS_WAITABLE_SWAPCHAIN : 0)
 					;
 
 				m_variableRateShadingSupported = true
@@ -2628,6 +2658,16 @@ VK_IMPORT_DEVICE
 			}
 
 			return lost;
+		}
+
+		bool waitForSwapchain() override
+		{
+			if (m_numWindows == 0)
+			{
+				return false;
+			}
+
+			return m_backBuffer.m_swapChain.waitForSwapchain();
 		}
 
 		void flip() override
@@ -5198,6 +5238,7 @@ VK_IMPORT_DEVICE
 		bool m_lineAASupport;
 		bool m_borderColorSupport;
 		bool m_timerQuerySupport;
+		bool m_presentWaitSupported = false;
 		bool m_swapchainMaintenance1Supported = false;
 		bool m_lost = false;
 
@@ -9198,6 +9239,22 @@ VK_DESTROY
 		return true;
 	}
 
+	bool SwapChainVK::waitForSwapchain()
+	{
+		if (VK_NULL_HANDLE == m_swapChain || !s_renderVK->m_presentWaitSupported || m_lastPresentId == 0)
+		{
+			return false;
+		}
+
+		VkResult result = vkWaitForPresentKHR(
+			s_renderVK->m_device,
+			m_swapChain,
+			m_lastPresentId,
+			1000000000ULL);
+
+		return result == VK_SUCCESS;
+	}
+
 	void SwapChainVK::present()
 	{
 		BGFX_PROFILER_SCOPE("SwapChainVk::present", kColorFrame);
@@ -9214,6 +9271,18 @@ VK_DESTROY
 			pi.pSwapchains        = &m_swapChain;
 			pi.pImageIndices      = &m_backBufferColorIdx;
 			pi.pResults           = NULL;
+
+			VkPresentIdKHR presentIdInfo;
+			if (s_renderVK->m_presentWaitSupported)
+			{
+				m_lastPresentId++;
+				presentIdInfo.sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR;
+				presentIdInfo.pNext = pi.pNext;
+				presentIdInfo.swapchainCount = 1;
+				presentIdInfo.pPresentIds = &m_lastPresentId;
+				pi.pNext = &presentIdInfo;
+			}
+
 
 			VkSwapchainPresentModeInfoEXT presentModeInfo;
 			if (s_renderVK->m_swapchainMaintenance1Supported)

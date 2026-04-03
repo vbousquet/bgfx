@@ -5180,6 +5180,7 @@ namespace bgfx
 		virtual RendererType::Enum getRendererType() const = 0;
 		virtual const char* getRendererName() const = 0;
 		virtual bool isDeviceRemoved() = 0;
+		virtual bool waitForSwapchain() = 0;
 		virtual void flip() = 0;
 		virtual void createIndexBuffer(IndexBufferHandle _handle, const Memory* _mem, uint16_t _flags) = 0;
 		virtual void destroyIndexBuffer(IndexBufferHandle _handle) = 0;
@@ -7814,6 +7815,7 @@ namespace bgfx
 		void collectSubmitViewUsed();
 
 		// render thread
+		bool waitForSwapchain();
 		void flip();
 		RenderFrame::Enum renderFrame(int32_t _msecs = -1);
 		void flushTextureUpdateBatch(CommandBuffer& _cmdbuf);
