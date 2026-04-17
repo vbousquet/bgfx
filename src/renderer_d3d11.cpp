@@ -1090,7 +1090,7 @@ namespace bgfx { namespace d3d11
 					m_scd.maxFrameLatency = bx::min<uint8_t>(_init.resolution.maxFrameLatency, BGFX_CONFIG_MAX_FRAME_LATENCY);
 					m_scd.nwh             = g_platformData.nwh;
 					m_scd.ndt             = g_platformData.ndt;
-					m_scd.windowed        = true;
+					m_scd.windowed        = !(_init.resolution.reset & BGFX_RESET_FULLSCREEN);
 
 					if (NULL != m_scd.nwh)
 					{
@@ -1703,6 +1703,8 @@ namespace bgfx { namespace d3d11
 					m_swapChainWaitable = NULL;
 				}
 #endif
+				if (m_swapChain)
+					m_swapChain->SetFullscreenState(FALSE, nullptr);
 				DX_RELEASE(m_swapChain, 0);
 				DX_RELEASE(m_deviceCtx, 0);
 				DX_RELEASE(m_device, 0);
@@ -1801,6 +1803,8 @@ namespace bgfx { namespace d3d11
 				m_swapChainWaitable = NULL;
 			}
 #endif
+			if (m_swapChain)
+				m_swapChain->SetFullscreenState(FALSE, nullptr);
 			DX_RELEASE(m_swapChain, 0);
 			DX_RELEASE(m_deviceCtx, 0);
 			DX_RELEASE(m_device, 0);
@@ -2646,6 +2650,8 @@ namespace bgfx { namespace d3d11
 							m_swapChainWaitable = NULL;
 						}
 #endif
+						if (m_swapChain)
+							m_swapChain->SetFullscreenState(FALSE, nullptr);
 						DX_RELEASE(m_swapChain, 0);
 						HRESULT hr = m_dxgi.createSwapChain(m_device
 							, m_scd
@@ -4984,6 +4990,7 @@ namespace bgfx { namespace d3d11
 		scd.nwh        = _nwh;
 		scd.ndt        = NULL;
 		scd.sampleDesc = s_msaa[0];
+		scd.windowed   = true;
 
 		ID3D11Device* device = s_renderD3D11->m_device;
 

@@ -508,18 +508,11 @@ namespace bgfx
 			DX_RELEASE_I(factory5);
 		}
 
-		DXGI_SWAP_CHAIN_FULLSCREEN_DESC scfd;
-		scfd.RefreshRate.Numerator   = 1;
-		scfd.RefreshRate.Denominator = 60;
-		scfd.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
-		scfd.Scaling  = DXGI_MODE_SCALING_UNSPECIFIED;
-		scfd.Windowed = _scd.windowed;
-
 		hr = m_factory->CreateSwapChainForHwnd(
 			  _device
 			, (HWND)_scd.nwh
 			, &scd
-			, &scfd
+			, NULL
 			, NULL
 			, reinterpret_cast<IDXGISwapChain1**>(_swapChain)
 		);
@@ -623,6 +616,47 @@ namespace bgfx
 #endif // BX_PLATFORM_LINUX || BX_PLATFORM_WINDOWS
 
 		updateHdr10(*_swapChain, _scd);
+
+#if BX_PLATFORM_WINDOWS
+		if (!_scd.windowed)
+		{
+			if (m_tearingSupported)
+			{
+				LONG windowStyle = GetWindowLong((HWND)_scd.nwh, GWL_STYLE);
+				SetWindowLong((HWND)_scd.nwh, GWL_STYLE, windowStyle & ~(WS_CAPTION | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU | WS_THICKFRAME));
+
+				IDXGIOutput* pOutput;
+				(*_swapChain)->GetContainingOutput(&pOutput);
+				DXGI_OUTPUT_DESC Desc;
+				pOutput->GetDesc(&Desc);
+
+				SetWindowPos(
+					(HWND)_scd.nwh,
+					HWND_TOPMOST,
+					Desc.DesktopCoordinates.left,
+					Desc.DesktopCoordinates.top,
+					Desc.DesktopCoordinates.right,
+					Desc.DesktopCoordinates.bottom,
+					SWP_FRAMECHANGED | SWP_NOACTIVATE);
+
+				ShowWindow((HWND)_scd.nwh, SW_MAXIMIZE);
+
+				BX_TRACE("DXGI swapchain switched to fullscreen (Borderless window with tearing)");
+			}
+			else
+			{
+				hr = (*_swapChain)->SetFullscreenState(TRUE, nullptr);
+				if (FAILED(hr))
+				{
+					BX_TRACE("Failed to switch DXGI swapchain to fullscreen (FSO)");
+				}
+				else
+				{
+					BX_TRACE("DXGI swapchain switched to fullscreen (FSO)");
+				}
+			}
+		}
+#endif // BX_PLATFORM_WINDOWS
 
 		return S_OK;
 	}

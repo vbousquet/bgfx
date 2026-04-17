@@ -1295,7 +1295,7 @@ namespace bgfx { namespace d3d12
 				m_scd.maxFrameLatency = bx::min<uint8_t>(_init.resolution.maxFrameLatency, BGFX_CONFIG_MAX_FRAME_LATENCY);
 				m_scd.nwh             = g_platformData.nwh;
 				m_scd.ndt             = g_platformData.ndt;
-				m_scd.windowed        = true;
+				m_scd.windowed        = !(_init.resolution.reset & BGFX_RESET_FULLSCREEN);
 
 				m_backBufferColorIdx = m_scd.bufferCount-1;
 
@@ -2007,6 +2007,8 @@ namespace bgfx { namespace d3d12
 				m_swapChainWaitable = NULL;
 			}
 #endif
+			if (m_swapChain)
+				m_swapChain->SetFullscreenState(FALSE, nullptr);
 			DX_RELEASE(m_swapChain, 0);
 
 			m_device->SetPrivateDataInterface(IID_ID3D12CommandQueue, NULL);
@@ -2894,6 +2896,8 @@ namespace bgfx { namespace d3d12
 							m_swapChainWaitable = NULL;
 						}
 #endif
+						if (m_swapChain)
+							m_swapChain->SetFullscreenState(FALSE, nullptr);
 						DX_RELEASE(m_swapChain, 0);
 
 						HRESULT hr;
@@ -6087,6 +6091,7 @@ namespace bgfx { namespace d3d12
 		scd.height     = _height;
 		scd.nwh        = _nwh;
 		scd.sampleDesc = s_msaa[0];
+		scd.windowed   = true;
 
 		HRESULT hr;
 		hr = s_renderD3D12->m_dxgi.createSwapChain(
