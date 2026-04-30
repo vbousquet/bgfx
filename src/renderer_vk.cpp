@@ -1719,6 +1719,38 @@ VK_IMPORT_INSTANCE
 					}
 				}
 
+				// Enable VK_KHR_present_id / VK_KHR_present_wait /
+				// VK_EXT_swapchain_maintenance1 features in vkCreateDevice when the
+				// device supports them. Using the corresponding APIs (vkWaitForPresentKHR,
+				// VkPresentIdKHR, VkSwapchainPresentModesCreateInfoEXT, etc.) without the
+				// matching feature enabled is a Vulkan spec violation and on RADV/Mesa 26
+				// segfaults inside vk_common_WaitSemaphores via a NULL semaphore handle.
+				// The supported bits were already populated above by
+				// vkGetPhysicalDeviceFeatures2KHR.
+				if (presentIdFeatures.presentId)
+				{
+					presentIdFeatures.sType     = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR;
+					presentIdFeatures.pNext     = (VkBaseOutStructure*)nextFeatures;
+					presentIdFeatures.presentId = VK_TRUE;
+					nextFeatures = &presentIdFeatures;
+				}
+
+				if (presentWaitFeatures.presentWait)
+				{
+					presentWaitFeatures.sType       = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR;
+					presentWaitFeatures.pNext       = (VkBaseOutStructure*)nextFeatures;
+					presentWaitFeatures.presentWait = VK_TRUE;
+					nextFeatures = &presentWaitFeatures;
+				}
+
+				if (swapchainMaintenance1Features.swapchainMaintenance1)
+				{
+					swapchainMaintenance1Features.sType                 = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT;
+					swapchainMaintenance1Features.pNext                 = (VkBaseOutStructure*)nextFeatures;
+					swapchainMaintenance1Features.swapchainMaintenance1 = VK_TRUE;
+					nextFeatures = &swapchainMaintenance1Features;
+				}
+
 				bx::memSet(&m_deviceFeatures, 0, sizeof(m_deviceFeatures) );
 
 				m_deviceFeatures.fullDrawIndexUint32               = supportedFeatures.fullDrawIndexUint32;
