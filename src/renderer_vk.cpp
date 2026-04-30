@@ -7785,6 +7785,8 @@ retry:
 	{
 		BGFX_PROFILER_SCOPE("SwapChainVK::createSwapchain", kColorFrame);
 
+		m_sci.pNext = NULL;
+
 		VkResult result = VK_SUCCESS;
 
 		const VkPhysicalDevice physicalDevice = s_renderVK->m_physicalDevice;
@@ -7901,13 +7903,15 @@ retry:
 		}
 
 		VkSwapchainPresentModesCreateInfoEXT modesInfo;
+		VkPresentModeKHR modes[2];
 		if (UINT32_MAX == m_presentModeWithVSyncIdx || UINT32_MAX == m_presentModeWithoutVSyncIdx)
 		{
 			s_renderVK->m_swapchainMaintenance1Supported = false;
 		}
 		else if (s_renderVK->m_swapchainMaintenance1Supported)
 		{
-			VkPresentModeKHR modes[] = { s_presentMode[m_presentModeWithVSyncIdx].mode, s_presentMode[m_presentModeWithoutVSyncIdx].mode };
+			modes[0] = s_presentMode[m_presentModeWithVSyncIdx].mode;
+			modes[1] = s_presentMode[m_presentModeWithoutVSyncIdx].mode;
 			modesInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODES_CREATE_INFO_EXT;
 			modesInfo.presentModeCount = 2;
 			modesInfo.pPresentModes = modes;
