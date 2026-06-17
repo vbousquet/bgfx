@@ -805,7 +805,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 			, m_variableRateShadingSupported(false)
 			, m_supportsDepthClipMode(false)
 			, m_depthClamp(false)
-			, m_screenshotTarget(NULL)
+			, m_numScreenshotTargets(0)
 			, m_screenshotBlitRenderPipelineState(NULL)
 			, m_commandBuffer(NULL)
 			, m_blitCommandEncoder(NULL)
@@ -1490,25 +1490,33 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 
 		void requestScreenShot(FrameBufferHandle _handle, const char* _filePath) override
 		{
-			BX_UNUSED(_handle);
+			MTL::Texture* screenshotTarget = NULL;
+			for (uint32_t ii = 0; ii < m_numScreenshotTargets; ++ii)
+			{
+				if (m_screenshotTargetFrameBufferHandle[ii].idx == _handle.idx)
+				{
+					screenshotTarget = m_screenshotTarget[ii];
+					break;
+				}
+			}
 
-			if (NULL == m_screenshotTarget)
+			if (NULL == screenshotTarget)
 			{
 				return;
 			}
 
-#if BX_PLATFORM_OSX
 			m_blitCommandEncoder = getBlitCommandEncoder();
-			m_blitCommandEncoder->synchronizeResource(m_screenshotTarget);
+#if BX_PLATFORM_OSX
+			m_blitCommandEncoder->synchronizeResource(screenshotTarget);
+#endif  // BX_PLATFORM_OSX
 			m_blitCommandEncoder->endEncoding();
 			m_blitCommandEncoder = NULL;
-#endif  // BX_PLATFORM_OSX
 
 			m_cmd.kick(false, true);
 			m_commandBuffer = 0;
 
-			const uint32_t width  = m_screenshotTarget->width();
-			const uint32_t height = m_screenshotTarget->height();
+			const uint32_t width  = screenshotTarget->width();
+			const uint32_t height = screenshotTarget->height();
 			const uint8_t  bpp    = bimg::getBitsPerPixel(bimg::TextureFormat::Enum(m_resolution.formatColor) );
 			const uint32_t pitch  = width * bpp / 8;
 			const uint32_t size   = height*pitch;
@@ -1516,12 +1524,12 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 
 			MTL::Region region(0, 0, 0, width, height, 1);
 
-			m_screenshotTarget->getBytes(data, pitch, 0, region, 0, 0);
+			screenshotTarget->getBytes(data, pitch, 0, region, 0, 0);
 
 			g_callback->screenShot(
 				  _filePath
-				, m_screenshotTarget->width()
-				, m_screenshotTarget->height()
+				, width
+				, height
 				, pitch
 				, m_resolution.formatColor
 				, data
@@ -1892,7 +1900,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 		{
 			if (NULL != m_capture)
 			{
-				if (NULL == m_screenshotTarget)
+				if (0 == m_numScreenshotTargets || NULL == m_screenshotTarget[0])
 				{
 					return;
 				}
@@ -1907,7 +1915,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 				const uint8_t  bpp   = bimg::getBitsPerPixel(bimg::TextureFormat::Enum(m_resolution.formatColor) );
 				const uint32_t pitch = m_resolution.width * bpp / 8;
 
-				m_screenshotTarget->getBytes(m_capture, pitch, 0, region, 0, 0);
+				m_screenshotTarget[0]->getBytes(m_capture, pitch, 0, region, 0, 0);
 
 				m_commandBuffer = m_cmd.alloc();
 
@@ -2220,18 +2228,28 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 
 				if (NULL != swapChain)
 				{
+					MTL::Texture* screenshotTarget = NULL;
+					for (uint32_t ii = 0; ii < m_numScreenshotTargets; ++ii)
+					{
+						if (m_screenshotTargetFrameBufferHandle[ii].idx == _fbh.idx)
+						{
+							screenshotTarget = m_screenshotTarget[ii];
+							break;
+						}
+					}
+
 					if (NULL != swapChain->m_backBufferColorMsaa)
 					{
 						_renderPassDescriptor->colorAttachments()->object(0)->setTexture(swapChain->m_backBufferColorMsaa);
-						_renderPassDescriptor->colorAttachments()->object(0)->setResolveTexture(NULL != m_screenshotTarget
-							? m_screenshotTarget
+						_renderPassDescriptor->colorAttachments()->object(0)->setResolveTexture(NULL != screenshotTarget
+							? screenshotTarget
 							: swapChain->currentDrawableTexture()
 							);
 					}
 					else
 					{
-						_renderPassDescriptor->colorAttachments()->object(0)->setTexture(NULL != m_screenshotTarget
-							? m_screenshotTarget
+						_renderPassDescriptor->colorAttachments()->object(0)->setTexture(NULL != screenshotTarget
+							? screenshotTarget
 							: swapChain->currentDrawableTexture()
 							);
 					}
@@ -3263,7 +3281,9 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 		MTL::VertexDescriptor*         m_vertexDescriptor;
 		MTL::SamplerDescriptor*        m_samplerDescriptor;
 
-		MTL::Texture*             m_screenshotTarget;
+		MTL::Texture*             m_screenshotTarget[BGFX_CONFIG_MAX_SCREENSHOTS];
+		FrameBufferHandle         m_screenshotTargetFrameBufferHandle[BGFX_CONFIG_MAX_SCREENSHOTS];
+		uint32_t                  m_numScreenshotTargets;
 		ShaderMtl                 m_screenshotBlitProgramVsh;
 		ShaderMtl                 m_screenshotBlitProgramFsh;
 		ProgramMtl                m_screenshotBlitProgram;
@@ -4625,6 +4645,8 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 
 	void FrameBufferMtl::resizeSwapChain(uint32_t _width, uint32_t _height, TextureFormat::Enum _format, TextureFormat::Enum _depthFormat)
 	{
+		m_width  = _width;
+		m_height = _height;
 		m_pixelFormatHash = m_swapChain->resize(_width, _height, _format, _depthFormat);
 	}
 
@@ -4994,26 +5016,32 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 
 		updateResolution(_render->m_resolution);
 
-		if (0 != _render->m_numScreenShots
+		for (uint32_t ii = 0; ii < m_numScreenshotTargets; ++ii)
+		{
+			MTL_RELEASE(m_screenshotTarget[ii], 0);
+		}
+		m_numScreenshotTargets = 0;
+
+		if ( (0 != _render->m_numScreenShots && !_render->m_flush)
 		||  NULL != m_capture)
 		{
-			if (m_screenshotTarget)
-			{
-				if (m_screenshotTarget->width()  != m_resolution.width
-				||  m_screenshotTarget->height() != m_resolution.height)
-				{
-					MTL_RELEASE(m_screenshotTarget, 0);
-				}
-			}
+			const uint32_t num = bx::min<uint32_t>(
+				  (0 != _render->m_numScreenShots && !_render->m_flush) ? _render->m_numScreenShots : 1
+				, BGFX_CONFIG_MAX_SCREENSHOTS
+				);
 
-			if (NULL == m_screenshotTarget)
+			for (uint32_t ii = 0; ii < num; ++ii)
 			{
+				const ScreenShot& screenShot = _render->m_screenShot[ii];
+				m_screenshotTargetFrameBufferHandle[ii] = screenShot.handle;
+				const FrameBufferMtl& frameBuffer = (!isValid(screenShot.handle)) ? m_mainFrameBuffer : m_frameBuffers[screenShot.handle.idx];
+
 				MTL::TextureDescriptor* desc = newTextureDescriptor();
 
 				desc->setTextureType(MTL::TextureType2D);
-				desc->setPixelFormat(getSwapChainPixelFormat(m_mainFrameBuffer.m_swapChain) );
-				desc->setWidth(m_resolution.width);
-				desc->setHeight(m_resolution.height);
+				desc->setPixelFormat(getSwapChainPixelFormat(frameBuffer.m_swapChain) );
+				desc->setWidth(frameBuffer.m_width);
+				desc->setHeight(frameBuffer.m_height);
 				desc->setDepth(1);
 				desc->setMipmapLevelCount(1);
 				desc->setSampleCount(1);
@@ -5033,13 +5061,11 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 						) );
 				}
 
-				m_screenshotTarget = m_device->newTexture(desc);
+				m_screenshotTarget[ii] = m_device->newTexture(desc);
 				MTL_RELEASE(desc, 0);
 			}
-		}
-		else
-		{
-			MTL_RELEASE(m_screenshotTarget, 0);
+
+			m_numScreenshotTargets = num;
 		}
 
 		m_uniformScratchBuffer.begin();
@@ -6220,10 +6246,17 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 			}
 		}
 
-		if (m_screenshotTarget)
+		for (uint32_t ii = 0; ii < m_numScreenshotTargets; ++ii)
 		{
+			if (NULL == m_screenshotTarget[ii])
+			{
+				continue;
+			}
+
+			const FrameBufferMtl& frameBuffer = (!isValid(m_screenshotTargetFrameBufferHandle[ii])) ? m_mainFrameBuffer : m_frameBuffers[m_screenshotTargetFrameBufferHandle[ii].idx];
+
 			MTL::RenderPassDescriptor* renderPassDescriptor = newRenderPassDescriptor();
-			renderPassDescriptor->colorAttachments()->object(0)->setTexture(NULL != m_mainFrameBuffer.m_swapChain ? m_mainFrameBuffer.m_swapChain->currentDrawableTexture() : NULL);
+			renderPassDescriptor->colorAttachments()->object(0)->setTexture(NULL != frameBuffer.m_swapChain ? frameBuffer.m_swapChain->currentDrawableTexture() : NULL);
 			renderPassDescriptor->colorAttachments()->object(0)->setStoreAction(MTL::StoreActionStore);
 
 			rce = m_commandBuffer->renderCommandEncoder(renderPassDescriptor);
@@ -6248,7 +6281,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 				);
 
 			rce->setFragmentSamplerState(samplerState, 0);
-			rce->setFragmentTexture(m_screenshotTarget, 0);
+			rce->setFragmentTexture(m_screenshotTarget[ii], 0);
 
 			rce->drawPrimitives(MTL::PrimitiveTypeTriangle, 0, 3, 1);
 

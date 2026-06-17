@@ -2809,6 +2809,16 @@ namespace bgfx
 		uint32_t nextFrameNum = m_render->m_frameNum + 1;
 		m_submit->start(nextFrameNum);
 
+		if (m_render->m_flush)
+		{
+			for (uint8_t ii = 0, num = m_render->m_numScreenShots
+				; ii < num && m_submit->m_numScreenShots < BGFX_CONFIG_MAX_SCREENSHOTS
+				; ++ii)
+			{
+				m_submit->m_screenShot[m_submit->m_numScreenShots++] = m_render->m_screenShot[ii];
+			}
+		}
+
 		bx::memSet(m_seq, 0, sizeof(m_seq) );
 
 		m_submit->m_textVideoMem->resize(
@@ -2912,7 +2922,7 @@ namespace bgfx
 
 				{
 					BGFX_PROFILER_SCOPE("bgfx/Screenshot", kColorResource);
-					for (uint8_t ii = 0, num = m_render->m_numScreenShots; ii < num; ++ii)
+					for (uint8_t ii = 0, num = m_render->m_flush ? 0 : m_render->m_numScreenShots; ii < num; ++ii)
 					{
 						const ScreenShot& screenShot = m_render->m_screenShot[ii];
 						m_renderCtx->requestScreenShot(screenShot.handle, screenShot.filePath.getCPtr() );
