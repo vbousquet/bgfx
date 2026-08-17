@@ -8785,10 +8785,19 @@ VK_DESTROY
 			{
 				BGFX_PROFILER_SCOPE("vkAcquireNextImageKHR", kColorFrame);
 
+				// Right after a compositor-triggered swapchain recreate (e.g. a Wayland
+				// fullscreen reconfigure at startup) no image is available at t=0 until the
+				// first present commits the surface: with a zero timeout a non-blocking
+				// window swapchain starves forever (VK_NOT_READY every frame, nothing ever
+				// presented, so the compositor never releases an image). A bounded wait
+				// primes the pump; worst case a genuinely unserved window costs 100ms per
+				// frame instead of freezing forever.
+				const uint64_t timeoutNs = _block ? UINT64_MAX : 100000000ull;
+
 				result = vkAcquireNextImageKHR(
 					  device
 					, m_swapChain
-					, _block ? UINT64_MAX : 0
+					, timeoutNs
 					, m_lastImageAcquiredSemaphore
 					, VK_NULL_HANDLE
 					, &m_backBufferColorIdx
