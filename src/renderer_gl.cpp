@@ -7079,11 +7079,19 @@ namespace bgfx { namespace gl
 					// Images, and storage buffers, require ESSL 3.10. Binding
 					// qualifier is not necessarily first in layout list, for
 					// example `layout(location = 0, binding = 2, rgba8)`.
+					// Multisample samplers require ESSL 3.10, and multisample
+					// array samplers require ESSL 3.20.
+					const bool usesTextureMsArray = !bx::strFind(code, "sampler2DMSArray").isEmpty();
+					const bool usesTextureMs      = !bx::strFind(code, "sampler2DMS").isEmpty();
+
 					const bool needsEssl310 = GL_COMPUTE_SHADER == m_type
 						|| !bx::strFind(code, "binding = ").isEmpty()
+						|| usesTextureMs
 						;
 
-					bx::write(&writer, &err, "#version %d es\n", needsEssl310 ? 310 : 300);
+					bx::write(&writer, &err, "#version %d es\n"
+						, usesTextureMsArray ? 320 : (needsEssl310 ? 310 : 300)
+						);
 				}
 				else
 				{
