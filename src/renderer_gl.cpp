@@ -7904,14 +7904,22 @@ namespace bgfx { namespace gl
 				{
 					const bool cubeArray = !bx::strFind(code, "CubeArray").isEmpty();
 
+					// Multisample samplers require ESSL 3.10, and multisample
+					// array samplers require ESSL 3.20.
+					const bool usesTextureMsArray = !bx::strFind(code, "sampler2DMSArray").isEmpty();
+					const bool usesTextureMs      = !bx::strFind(code, "sampler2DMS").isEmpty();
+
 					const bool needsEssl310 = false
 						|| s_renderGL->m_essl310Support
 						|| GL_COMPUTE_SHADER == m_type
 						|| cubeArray
 						|| !bx::strFind(code, "binding = ").isEmpty()
+						|| usesTextureMs
 						;
 
-					bx::write(&writer, &err, "#version %d es\n", needsEssl310 ? 310 : 300);
+					bx::write(&writer, &err, "#version %d es\n"
+						, usesTextureMsArray ? 320 : (needsEssl310 ? 310 : 300)
+						);
 
 					if (cubeArray)
 					{
