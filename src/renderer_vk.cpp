@@ -9320,8 +9320,11 @@ VK_DESTROY
 				break;
 
 			case VK_ERROR_OUT_OF_DATE_KHR:
-			case VK_SUBOPTIMAL_KHR:
 				m_needToRecreateSwapchain = true;
+				break;
+
+			case VK_SUBOPTIMAL_KHR:
+				m_needToRecreateSwapchain = !BX_ENABLED(BX_PLATFORM_ANDROID);
 				break;
 
 			default:
