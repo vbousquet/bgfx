@@ -6131,10 +6131,11 @@ namespace bgfx { namespace d3d11
 					}
 					else if (Access::Write == at.access)
 					{
-						m_needsQuadClearZero |= 0 != at.mip
-							|| 0 != at.layer
-							|| 1 < texture.m_numLayers
-							;
+						m_needsQuadClearZero |= (1 == at.numLayers)
+							&& (0 != at.mip
+							 || 0 != at.layer
+							 || 1 < texture.m_numLayers
+							 );
 
 						{
 							const bx::EncodingType::Enum encoding = bx::EncodingType::Enum(bimg::getBlockInfo(bimg::TextureFormat::Enum(texture.m_textureFormat) ).encoding);
