@@ -988,6 +988,7 @@ WL_EGL_IMPORT
 		}
 
 #	if BX_PLATFORM_ANDROID
+		m_nwh = _swapChain.nwh;
 		if (m_ownsContext
 		&&  NULL != m_display
 		&&  NULL != m_nwh)
