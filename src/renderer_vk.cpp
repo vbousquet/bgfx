@@ -3314,9 +3314,9 @@ VK_IMPORT_DEVICE
 			{
 				uint32_t flags = _reset & (~BGFX_RESET_INTERNAL_FORCE);
 
-				if (m_backBuffer.m_nwh != m_mainSwapChain.nwh)
+				if (m_backBuffer.m_nwh != _swapChain.nwh)
 				{
-					m_backBuffer.m_nwh = m_mainSwapChain.nwh;
+					m_backBuffer.m_nwh = _swapChain.nwh;
 				}
 
 				m_mainSwapChain = _swapChain;
