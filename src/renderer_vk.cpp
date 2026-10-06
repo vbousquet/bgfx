@@ -509,6 +509,44 @@ VK_IMPORT_DEVICE
 		return supported;
 	}
 
+	static const VulkanExternalDevice* getExternalDevice()
+	{
+		return NULL != g_platformData.context
+			? (const VulkanExternalDevice*)g_platformData.queue
+			: NULL
+			;
+	}
+
+	static bool isExtensionEnabled(const char* _name, const char* const* _extensions, uint32_t _num)
+	{
+		for (uint32_t ii = 0; ii < _num; ++ii)
+		{
+			if (0 == bx::strCmp(_name, _extensions[ii]) )
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// An external device only has the extensions its owner enabled, enumeration reports what the driver offers.
+	static void applyExternalDeviceExtensions(const VulkanExternalDevice* _externalDevice, Extension _extensions[Extension::Count])
+	{
+		for (uint32_t ii = 0; ii < Extension::Count; ++ii)
+		{
+			Extension& extension = _extensions[ii];
+
+			if (extension.m_supported)
+			{
+				extension.m_supported = extension.m_instanceExt
+					? isExtensionEnabled(extension.m_name, _externalDevice->instanceExtensions, _externalDevice->numInstanceExtensions)
+					: isExtensionEnabled(extension.m_name, _externalDevice->deviceExtensions,   _externalDevice->numDeviceExtensions)
+					;
+			}
+		}
+	}
+
 	static bool wsiSurfaceSupported()
 	{
 #if BX_PLATFORM_WINDOWS
@@ -1320,6 +1358,7 @@ VK_IMPORT_DEVICE
 			, m_memoryLru()
 			, m_device(NULL)
 			, m_externalDevice(NULL)
+			, m_externalInstance(false)
 			, m_renderDocDll(NULL)
 			, m_vulkan1Dll(NULL)
 			, m_maxAnisotropy(1.0f)
@@ -1581,11 +1620,24 @@ VK_IMPORT
 					BX_UNUSED(s_allocationCb);
 				}
 
-				result = vkCreateInstance(
-					  &ici
-					, m_allocatorCb
-					, &m_instance
-					);
+				const VulkanExternalDevice* externalDevice = getExternalDevice();
+
+				if (NULL != externalDevice
+				&&  NULL != externalDevice->instance)
+				{
+					m_instance = (VkInstance)externalDevice->instance;
+					m_externalInstance = true;
+					applyExternalDeviceExtensions(externalDevice, s_extension);
+					result = VK_SUCCESS;
+				}
+				else
+				{
+					result = vkCreateInstance(
+						  &ici
+						, m_allocatorCb
+						, &m_instance
+						);
+				}
 
 				if (VK_SUCCESS != result)
 				{
@@ -1775,9 +1827,43 @@ VK_IMPORT_INSTANCE
 						;
 				}
 
+				const VulkanExternalDevice* externalDevice = getExternalDevice();
+
+				if (NULL != externalDevice
+				&&  NULL != externalDevice->physicalDevice)
+				{
+					physicalDeviceIdx = UINT32_MAX;
+
+					for (uint32_t ii = 0; ii < numPhysicalDevices; ++ii)
+					{
+						if (physicalDevices[ii] == (VkPhysicalDevice)externalDevice->physicalDevice)
+						{
+							physicalDeviceIdx = ii;
+						}
+					}
+
+					if (UINT32_MAX == physicalDeviceIdx)
+					{
+						BX_TRACE("Init error: External physical device is not enumerated by the instance.");
+						goto error;
+					}
+				}
+
 				m_physicalDevice = physicalDevices[physicalDeviceIdx];
 
 				bx::memCopy(&s_extension[0], &physicalDeviceExtensions[physicalDeviceIdx][0], sizeof(s_extension) );
+
+				if (NULL != externalDevice)
+				{
+					applyExternalDeviceExtensions(externalDevice, s_extension);
+
+					if (!headless
+					&&  !isExtensionEnabled(VK_KHR_SWAPCHAIN_EXTENSION_NAME, externalDevice->deviceExtensions, externalDevice->numDeviceExtensions) )
+					{
+						BX_TRACE("Init error: External device was created without VK_KHR_swapchain, no swap chain can be created on it.");
+						goto error;
+					}
+				}
 
 				if ( s_extension[Extension::EXT_swapchain_maintenance1].m_supported
 				&& (!s_extension[Extension::EXT_surface_maintenance1  ].m_supported || !s_extension[Extension::KHR_get_surface_capabilities2].m_supported)
@@ -2260,6 +2346,22 @@ VK_IMPORT_INSTANCE
 					}
 				}
 
+				if (const VulkanExternalDevice* externalDevice = getExternalDevice(); NULL != externalDevice
+				&&  UINT32_MAX != externalDevice->queueFamilyIndex)
+				{
+					constexpr VkQueueFlags requiredFlags = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT;
+
+					if (externalDevice->queueFamilyIndex >= queueFamilyPropertyCount
+					||  requiredFlags != (requiredFlags & queueFamilyPropertices[externalDevice->queueFamilyIndex].queueFlags) )
+					{
+						BX_TRACE("Init error: External device queue family %d is not a combined graphics and compute queue.", externalDevice->queueFamilyIndex);
+						bx::free(g_allocator, queueFamilyPropertices);
+						goto error;
+					}
+
+					m_globalQueueFamily = externalDevice->queueFamilyIndex;
+				}
+
 				bx::free(g_allocator, queueFamilyPropertices);
 
 				if (UINT32_MAX == m_globalQueueFamily)
@@ -2656,7 +2758,12 @@ VK_IMPORT_DEVICE
 					vkDestroyDebugReportCallbackEXT(m_instance, m_debugReportCallback, m_allocatorCb);
 				}
 
-				vkDestroyInstance(m_instance, m_allocatorCb);
+				if (!m_externalInstance)
+				{
+					vkDestroyInstance(m_instance, m_allocatorCb);
+				}
+
+				m_externalInstance = false;
 				[[fallthrough]];
 
 			case ErrorState::LoadedVulkan1:
@@ -2744,7 +2851,12 @@ VK_IMPORT_DEVICE
 				vkDestroyDebugReportCallbackEXT(m_instance, m_debugReportCallback, m_allocatorCb);
 			}
 
-			vkDestroyInstance(m_instance, m_allocatorCb);
+			if (!m_externalInstance)
+			{
+				vkDestroyInstance(m_instance, m_allocatorCb);
+			}
+
+			m_externalInstance = false;
 
 			bx::dlclose(m_vulkan1Dll);
 			m_vulkan1Dll  = NULL;
@@ -5551,6 +5663,7 @@ VK_IMPORT_DEVICE
 
 		VkDevice m_device;
 		VkDevice m_externalDevice;
+		bool m_externalInstance;
 		uint32_t m_globalQueueFamily;
 		VkQueue  m_globalQueue;
 		uint32_t m_videoDecodeQueueFamily;

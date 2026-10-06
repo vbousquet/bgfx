@@ -926,7 +926,8 @@ struct.PlatformData { ctor, section = "Platform specific" }
 		--- GL context, D3D device, or Vulkan device. If `NULL`, bgfx
 		--- will create context/device.
 	.queue "void*"
-		--- D3D12 Queue. If `NULL` bgfx will create queue.
+		--- D3D12 Queue, or `VulkanExternalDevice*` describing an
+		--- external Vulkan device. If `NULL` bgfx will create queue.
 	.type "NativeWindowHandleType::Enum" --- Handle type. Needed for platforms having more than one option.
 
 --- Swap chain description.

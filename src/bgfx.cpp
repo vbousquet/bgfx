@@ -4315,6 +4315,17 @@ namespace bgfx
 		return s_rendererCreator[_type].name;
 	}
 
+	VulkanExternalDevice::VulkanExternalDevice()
+		: instance(NULL)
+		, physicalDevice(NULL)
+		, queueFamilyIndex(UINT32_MAX)
+		, instanceExtensions(NULL)
+		, numInstanceExtensions(0)
+		, deviceExtensions(NULL)
+		, numDeviceExtensions(0)
+	{
+	}
+
 	PlatformData::PlatformData()
 		: context(NULL)
 		, queue(NULL)
