@@ -790,7 +790,12 @@ typedef struct bgfx_platform_data_s
      * will create context/device.
      */
     void*                context;
-    void*                queue;              /** D3D12 Queue. If `NULL` bgfx will create queue. */
+
+    /**
+     * D3D12 Queue, or `VulkanExternalDevice*` describing an
+     * external Vulkan device. If `NULL` bgfx will create queue.
+     */
+    void*                queue;
     bgfx_native_window_handle_type_t type;   /** Handle type. Needed for platforms having more than one option. */
 
 } bgfx_platform_data_t;
