@@ -6332,7 +6332,12 @@ WGPU_IMPORT
 		m_textureView = createTextureView();
 #endif // !BX_PLATFORM_EMSCRIPTEN
 
-		const uint32_t msaa = s_msaa[(_desc.flags&BGFX_SWAP_CHAIN_MSAA_MASK)>>BGFX_SWAP_CHAIN_MSAA_SHIFT];
+		return createAttachments();
+	}
+
+	bool SwapChainWGPU::createAttachments()
+	{
+		const uint32_t msaa = s_msaa[(m_desc.flags&BGFX_SWAP_CHAIN_MSAA_MASK)>>BGFX_SWAP_CHAIN_MSAA_SHIFT];
 
 		wgpuRelease(m_depthStencilView);
 		wgpuRelease(m_msaaTextureView);
@@ -6728,6 +6733,24 @@ WGPU_IMPORT
 
 		if (NULL != m_texture)
 		{
+#if BX_PLATFORM_EMSCRIPTEN
+			// The page can resize the canvas on its own (a browser window resize handled by SDL from the main thread), ahead of the
+			// swap chain being reconfigured: the surface texture then comes at the canvas size while the depth/stencil and MSAA
+			// attachments still have the configured one, and every render pass on it would be rejected. Follow the surface texture.
+			const uint32_t width  = wgpuTextureGetWidth(m_texture);
+			const uint32_t height = wgpuTextureGetHeight(m_texture);
+
+			if (width  != m_surfaceConfig.width
+			||  height != m_surfaceConfig.height)
+			{
+				m_desc.width           = width;
+				m_desc.height          = height;
+				m_surfaceConfig.width  = width;
+				m_surfaceConfig.height = height;
+				createAttachments();
+			}
+#endif // BX_PLATFORM_EMSCRIPTEN
+
 			m_textureView = createTextureView();
 		}
 	}
@@ -8286,6 +8309,15 @@ WGPU_IMPORT
 						;
 
 					viewState.m_rect = renderView->m_rect;
+
+					if (isSwapChain
+					&& (fb.m_width  != fb.m_swapChain.m_desc.width
+					||  fb.m_height != fb.m_swapChain.m_desc.height) )
+					{
+						// The swap chain followed a canvas resize (see SwapChainWGPU::acquire): clip to its current size
+						fb.m_width  = fb.m_swapChain.m_desc.width;
+						fb.m_height = fb.m_swapChain.m_desc.height;
+					}
 
 					const Rect fbRect(0, 0, bx::narrowCast<uint16_t>(fb.m_width), bx::narrowCast<uint16_t>(fb.m_height) );
 
